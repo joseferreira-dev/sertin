@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sertin - Controle Financeiro</title>
+    <link rel="stylesheet" href="renderer/styles.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
+    />
+  </head>
+  <body>
+    <div id="app">
+      <!-- Topbar -->
+      <header id="topbar">
+        <div class="logo">
+          <i class="fas fa-wallet"></i>
+          <span>Sertin</span>
+        </div>
+        <div id="filtro-periodo">
+          <label for="select-mes"
+            ><i class="fas fa-calendar-alt"></i> Mês:</label
+          >
+          <select id="select-mes">
+            <option value="todos">Todos</option>
+            <option value="Jan">Jan</option>
+            <option value="Fev">Fev</option>
+            <option value="Mar">Mar</option>
+            <option value="Abr">Abr</option>
+            <option value="Mai">Mai</option>
+            <option value="Jun">Jun</option>
+            <option value="Jul">Jul</option>
+            <option value="Ago">Ago</option>
+            <option value="Set">Set</option>
+            <option value="Out">Out</option>
+            <option value="Nov">Nov</option>
+            <option value="Dez">Dez</option>
+          </select>
+          <label for="select-ano"><i class="fas fa-calendar"></i> Ano:</label>
+          <select id="select-ano">
+            <option value="todos">Todos</option>
+          </select>
+        </div>
+      </header>
+
+      <div id="main-wrapper">
+        <!-- Sidebar -->
+        <nav id="sidebar">
+          <ul>
+            <li data-view="dashboard" class="active">
+              <i class="fas fa-chart-pie"></i>
+              <span>Panorama</span>
+            </li>
+            <li data-view="lancamentos">
+              <i class="fas fa-list-ul"></i>
+              <span>Lançamentos</span>
+            </li>
+            <li data-view="parcelamentos">
+              <i class="fas fa-credit-card"></i>
+              <span>Parcelamentos</span>
+            </li>
+            <li data-view="metas">
+              <i class="fas fa-bullseye"></i>
+              <span>Metas</span>
+            </li>
+            <li data-view="contas">
+              <i class="fas fa-university"></i>
+              <span>Contas</span>
+            </li>
+            <li data-view="cartoes">
+              <i class="fas fa-credit-card"></i>
+              <span>Cartões</span>
+            </li>
+            <li data-view="configuracoes">
+              <i class="fas fa-cog"></i>
+              <span>Config</span>
+            </li>
+          </ul>
+        </nav>
+
+        <!-- Conteúdo -->
+        <main id="content">
+          <div id="view-dashboard" class="view active">
+            <h2><i class="fas fa-chart-pie"></i> Panorama Financeiro</h2>
+            <div id="dashboard-container"></div>
+          </div>
+          <div id="view-lancamentos" class="view">
+            <h2><i class="fas fa-list-ul"></i> Lançamentos</h2>
+            <div id="lancamentos-container"></div>
+          </div>
+          <div id="view-parcelamentos" class="view">
+            <h2><i class="fas fa-credit-card"></i> Parcelamentos</h2>
+            <div id="parcelamentos-container"></div>
+          </div>
+          <div id="view-metas" class="view">
+            <h2><i class="fas fa-bullseye"></i> Metas</h2>
+            <div id="metas-container"></div>
+          </div>
+          <div id="view-contas" class="view">
+            <h2><i class="fas fa-university"></i> Contas Bancárias</h2>
+            <div id="contas-container"></div>
+          </div>
+          <div id="view-cartoes" class="view">
+            <h2><i class="fas fa-credit-card"></i> Cartões de Crédito</h2>
+            <div id="cartoes-container"></div>
+          </div>
+          <div id="view-configuracoes" class="view">
+            <h2><i class="fas fa-cog"></i> Configurações</h2>
+            <div id="configuracoes-container"></div>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <script src="renderer/utils.js"></script>
+    <script src="renderer/main.js"></script>
+    <script src="renderer/dashboard.js"></script>
+    <script src="renderer/lancamentos.js"></script>
+    <script src="renderer/parcelamentos.js"></script>
+    <script src="renderer/metas.js"></script>
+    <script src="renderer/contas_cartoes.js"></script>
+    <script src="renderer/configuracoes.js"></script>
+  </body>
+</html>

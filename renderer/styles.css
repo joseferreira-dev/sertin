@@ -1,0 +1,599 @@
+:root {
+  /* Paleta de cores vibrantes e suaves */
+  --bg-primary: #f8fafc;
+  --bg-card: #ffffff;
+  --text-primary: #1a1a2e;
+  --text-secondary: #4a4a6a;
+  --text-light: #8a8aaa;
+  --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 8px 30px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.1);
+  --radius-lg: 20px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+
+  /* Cores vibrantes */
+  --violet: #8b5cf6;
+  --violet-light: #ede9fe;
+  --blue: #3b82f6;
+  --blue-light: #dbeafe;
+  --cyan: #06b6d4;
+  --cyan-light: #cffafe;
+  --green: #10b981;
+  --green-light: #d1fae5;
+  --yellow: #f59e0b;
+  --yellow-light: #fef3c7;
+  --orange: #f97316;
+  --orange-light: #ffedd5;
+  --pink: #ec4899;
+  --pink-light: #fce7f3;
+  --red: #ef4444;
+  --red-light: #fee2e2;
+  --indigo: #6366f1;
+  --indigo-light: #e0e7ff;
+  --teal: #14b8a6;
+  --teal-light: #ccfbf1;
+
+  /* Gradientes */
+  --gradient-1: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --gradient-2: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  --gradient-3: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  --gradient-4: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  --gradient-5: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family:
+    "Inter",
+    -apple-system,
+    BlinkMacSystemFont,
+    sans-serif;
+  background: var(--bg-primary);
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  color: var(--text-primary);
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* Topbar */
+#topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 32px;
+  height: 72px;
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  flex-shrink: 0;
+  z-index: 10;
+}
+
+#topbar .logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 24px;
+  font-weight: 700;
+  background: var(--gradient-1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+#topbar .logo i {
+  font-size: 28px;
+  -webkit-text-fill-color: initial;
+  color: #667eea;
+}
+
+#filtro-periodo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+#filtro-periodo label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+#filtro-periodo select {
+  padding: 8px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  background: #ffffff;
+  color: var(--text-primary);
+  outline: none;
+  cursor: pointer;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+  font-weight: 500;
+}
+#filtro-periodo select:focus {
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px var(--violet-light);
+}
+
+/* Main wrapper */
+#main-wrapper {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* Sidebar - Bento style */
+#sidebar {
+  width: 230px;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  border-right: 1px solid rgba(0, 0, 0, 0.04);
+  padding: 16px 12px;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+#sidebar ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#sidebar ul li {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  transition:
+    background 0.2s,
+    color 0.2s,
+    transform 0.1s;
+  position: relative;
+}
+
+#sidebar ul li i {
+  width: 22px;
+  text-align: center;
+  font-size: 18px;
+  transition: color 0.2s;
+}
+
+#sidebar ul li:hover {
+  background: var(--violet-light);
+  color: var(--violet);
+  transform: translateX(4px);
+}
+
+#sidebar ul li.active {
+  background: var(--violet-light);
+  color: var(--violet);
+  font-weight: 600;
+}
+#sidebar ul li.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 20%;
+  height: 60%;
+  width: 4px;
+  background: var(--violet);
+  border-radius: 0 4px 4px 0;
+}
+
+/* Content */
+#content {
+  flex: 1;
+  padding: 28px 32px;
+  overflow-y: auto;
+  background: var(--bg-primary);
+}
+
+.view {
+  display: none;
+  animation: fadeIn 0.3s ease;
+}
+.view.active {
+  display: block;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+h2 {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 24px;
+}
+h2 i {
+  margin-right: 12px;
+  background: var(--gradient-1);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* Cards Bento-style */
+.card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  transition:
+    box-shadow 0.3s,
+    transform 0.2s;
+}
+.card:hover {
+  box-shadow: var(--shadow-md);
+}
+.card h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.card h3 i {
+  color: var(--violet);
+}
+
+/* Tabelas */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+table th {
+  text-align: left;
+  padding: 12px 16px;
+  background: var(--bg-primary);
+  color: var(--text-secondary);
+  font-weight: 600;
+  border-bottom: 2px solid #e2e8f0;
+}
+table td {
+  padding: 10px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  color: var(--text-primary);
+}
+table tr:hover {
+  background: var(--violet-light);
+}
+
+/* Botões Bento-style */
+.btn {
+  background: var(--violet);
+  border: none;
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition:
+    background 0.2s,
+    transform 0.1s,
+    box-shadow 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.25);
+}
+.btn:hover {
+  background: #7c3aed;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(139, 92, 246, 0.35);
+}
+.btn:active {
+  transform: translateY(0);
+}
+.btn i {
+  font-size: 16px;
+}
+.btn-success {
+  background: var(--green);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.25);
+}
+.btn-success:hover {
+  background: #059669;
+  box-shadow: 0 8px 24px rgba(16, 185, 129, 0.35);
+}
+.btn-danger {
+  background: var(--red);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.25);
+}
+.btn-danger:hover {
+  background: #dc2626;
+  box-shadow: 0 8px 24px rgba(239, 68, 68, 0.35);
+}
+.btn-sm {
+  padding: 6px 14px;
+  font-size: 12px;
+  gap: 4px;
+  box-shadow: none;
+}
+.btn-sm:hover {
+  transform: none;
+  box-shadow: var(--shadow-sm);
+}
+
+/* Formulários */
+.form-group {
+  margin-bottom: 16px;
+}
+.form-group label {
+  display: block;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border: 2px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  background: #fafcff;
+  color: var(--text-primary);
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus {
+  border-color: var(--violet);
+  box-shadow: 0 0 0 3px var(--violet-light);
+  outline: none;
+}
+.form-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.form-row .form-group {
+  flex: 1;
+  min-width: 150px;
+}
+
+/* Seletor de cor */
+input[type="color"] {
+  width: 60px;
+  height: 42px;
+  padding: 2px;
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+}
+
+/* Modal */
+.modal {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(4px);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+.modal.active {
+  display: flex;
+}
+.modal-content {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  min-width: 480px;
+  max-width: 90%;
+  max-height: 80vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid rgba(0, 0, 0, 0.04);
+}
+.modal-content h3 {
+  font-weight: 700;
+  font-size: 20px;
+  margin-bottom: 20px;
+  color: var(--text-primary);
+}
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+/* Dashboard - Bento Grid */
+.dash-resumo {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.dash-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  transition:
+    box-shadow 0.3s,
+    transform 0.2s;
+}
+.dash-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+.dash-card .rotulo {
+  font-size: 13px;
+  color: var(--text-light);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.dash-card .valor {
+  font-size: 30px;
+  font-weight: 700;
+  margin-top: 4px;
+}
+.dash-card.receita .valor {
+  color: var(--green);
+}
+.dash-card.despesa .valor {
+  color: var(--red);
+}
+.dash-card.saldo .valor {
+  color: var(--violet);
+}
+
+.dash-categorias {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.dash-categorias .cat-item {
+  background: var(--violet-light);
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--violet);
+}
+
+/* Cards de contas e cartões (Bento-style) */
+.conta-card,
+.cartao-card {
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  width: 220px;
+  color: #fff;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--shadow-md);
+  transition:
+    transform 0.2s,
+    box-shadow 0.2s;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.conta-card:hover,
+.cartao-card:hover {
+  transform: translateY(-6px) scale(1.02);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Configurações - Bento organizado */
+.config-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 24px;
+}
+.config-group {
+  background: var(--bg-card);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-sm);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  transition: box-shadow 0.3s;
+}
+.config-group:hover {
+  box-shadow: var(--shadow-md);
+}
+.config-group h4 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 2px solid var(--violet-light);
+  padding-bottom: 12px;
+}
+.config-group h4 i {
+  color: var(--violet);
+  font-size: 18px;
+}
+.config-group ul {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 12px 0;
+}
+.config-group ul li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.config-group ul li:last-child {
+  border-bottom: none;
+}
+.config-group ul li .tag {
+  background: var(--violet-light);
+  color: var(--violet);
+  padding: 2px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.config-add {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.config-add input {
+  flex: 1;
+  padding: 8px 12px;
+  border: 2px solid #e2e8f0;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+.config-add input:focus {
+  border-color: var(--violet);
+  outline: none;
+}
+.config-add .btn {
+  padding: 8px 16px;
+}
