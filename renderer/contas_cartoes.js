@@ -37,7 +37,7 @@ function renderContas() {
       `;
     });
   } else {
-    html += `<p style="width:100%; text-align:center; color: var(--sertao-sombra);">Nenhuma conta cadastrada.</p>`;
+    html += `<p style="width:100%; text-align:center; color: var(--text-secondary);">Nenhuma conta cadastrada.</p>`;
   }
   html += `</div>`;
   container.innerHTML = html;
@@ -135,21 +135,43 @@ function renderCartoes() {
     <div style="display: flex; flex-wrap: wrap; gap: 20px; margin-top: 16px;">`;
   if (cartoesData.length) {
     cartoesData.forEach((c) => {
+      const utilizado = c.limite_utilizado || 0;
+      const disponivel = Math.max(c.limite - utilizado, 0);
+      const percentual = c.limite > 0 ? (utilizado / c.limite) * 100 : 0;
+      let barraCor = "var(--green)";
+      if (percentual > 80) barraCor = "var(--red)";
+      else if (percentual > 50) barraCor = "var(--yellow)";
+
       html += `
-        <div class="cartao-card" style="background: ${c.cor || "#D4A373"}; border: 1px solid #ccc; border-radius: 8px; padding: 16px; width: 220px; color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,0.3); box-shadow: 0 2px 6px rgba(0,0,0,0.1);">
+        <div class="cartao-card" style="background: ${c.cor || "#D4A373"}; border-radius: var(--radius-lg); padding: 20px; width: 240px; color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.15); box-shadow: var(--shadow-md);">
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <span style="font-size: 18px; font-weight: bold;">${c.nome}</span>
             <i class="fas fa-credit-card" style="font-size: 24px;"></i>
           </div>
           <div style="margin-top: 12px;">
-            <div style="font-size: 12px; opacity: 0.8;">Limite</div>
-            <div style="font-size: 18px; font-weight: 600;">R$ ${c.limite.toFixed(2)}</div>
+            <div style="display: flex; justify-content: space-between;">
+              <div>
+                <div style="font-size: 11px; opacity: 0.8;">Limite</div>
+                <div style="font-size: 16px; font-weight: 600;">R$ ${c.limite.toFixed(2)}</div>
+              </div>
+              <div style="text-align: right;">
+                <div style="font-size: 11px; opacity: 0.8;">Utilizado</div>
+                <div style="font-size: 16px; font-weight: 600;">R$ ${utilizado.toFixed(2)}</div>
+              </div>
+            </div>
+            <div style="margin-top: 8px;">
+              <div style="font-size: 11px; opacity: 0.8;">Disponível</div>
+              <div style="font-size: 18px; font-weight: 700;">R$ ${disponivel.toFixed(2)}</div>
+            </div>
+            <div style="margin-top: 8px; height: 6px; background: rgba(255,255,255,0.2); border-radius: 3px; overflow: hidden;">
+              <div style="width: ${Math.min(percentual, 100)}%; height: 100%; background: ${barraCor}; border-radius: 3px; transition: width 0.3s;"></div>
+            </div>
           </div>
-          <div style="display: flex; justify-content: space-between; margin-top: 8px;">
-            <div><span style="font-size: 11px; opacity: 0.8;">Fechamento</span><br>${c.dia_fechamento || "-"}</div>
-            <div><span style="font-size: 11px; opacity: 0.8;">Vencimento</span><br>${c.dia_vencimento || "-"}</div>
+          <div style="display: flex; justify-content: space-between; margin-top: 10px;">
+            <div><span style="font-size: 10px; opacity: 0.7;">Fechamento</span><br>${c.dia_fechamento || "-"}</div>
+            <div><span style="font-size: 10px; opacity: 0.7;">Vencimento</span><br>${c.dia_vencimento || "-"}</div>
           </div>
-          ${c.observacoes ? `<div style="margin-top: 8px; font-size: 12px; opacity: 0.9; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 6px;">${c.observacoes}</div>` : ""}
+          ${c.observacoes ? `<div style="margin-top: 8px; font-size: 11px; opacity: 0.9; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 6px;">${c.observacoes}</div>` : ""}
           <div style="margin-top: 12px; display: flex; gap: 8px; justify-content: flex-end;">
             <button class="btn btn-sm btn-success" onclick="editarCartao(${c.id})"><i class="fas fa-edit"></i></button>
             <button class="btn btn-sm btn-danger" onclick="excluirCartao(${c.id})"><i class="fas fa-trash"></i></button>
@@ -158,7 +180,7 @@ function renderCartoes() {
       `;
     });
   } else {
-    html += `<p style="width:100%; text-align:center; color: var(--sertao-sombra);">Nenhum cartão cadastrado.</p>`;
+    html += `<p style="width:100%; text-align:center; color: var(--text-light);">Nenhum cartão cadastrado.</p>`;
   }
   html += `</div>`;
   container.innerHTML = html;
@@ -173,6 +195,7 @@ function mostrarModalCartao(dados = null) {
   const data = dados || {
     nome: "",
     limite: "",
+    limite_utilizado: "",
     dia_fechamento: "",
     dia_vencimento: "",
     observacoes: "",
@@ -186,6 +209,9 @@ function mostrarModalCartao(dados = null) {
         <div class="form-group"><label>Nome</label><input type="text" id="ca-nome" value="${data.nome || ""}" required /></div>
         <div class="form-row">
           <div class="form-group"><label>Limite (R$)</label><input type="number" step="0.01" id="ca-limite" value="${data.limite || ""}" /></div>
+          <div class="form-group"><label>Limite Utilizado (R$)</label><input type="number" step="0.01" id="ca-limite_utilizado" value="${data.limite_utilizado || ""}" /></div>
+        </div>
+        <div class="form-row">
           <div class="form-group"><label>Dia Fechamento</label><input type="number" min="1" max="31" id="ca-fechamento" value="${data.dia_fechamento || ""}" placeholder="dia" /></div>
           <div class="form-group"><label>Dia Vencimento</label><input type="number" min="1" max="31" id="ca-vencimento" value="${data.dia_vencimento || ""}" placeholder="dia" /></div>
         </div>
@@ -207,6 +233,8 @@ function mostrarModalCartao(dados = null) {
       const formData = {
         nome: document.getElementById("ca-nome").value,
         limite: parseFloat(document.getElementById("ca-limite").value) || 0,
+        limite_utilizado:
+          parseFloat(document.getElementById("ca-limite_utilizado").value) || 0,
         dia_fechamento:
           parseInt(document.getElementById("ca-fechamento").value) || null,
         dia_vencimento:

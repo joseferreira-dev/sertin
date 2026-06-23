@@ -69,7 +69,8 @@ function initDatabase() {
       dia_fechamento INTEGER,
       dia_vencimento INTEGER,
       observacoes TEXT,
-      cor TEXT DEFAULT '#D4A373'
+      cor TEXT DEFAULT '#D4A373',
+      limite_utilizado REAL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS config_listas (
@@ -79,7 +80,7 @@ function initDatabase() {
     );
   `);
 
-  // Migrações para adicionar coluna cor (caso já exista tabela sem a coluna)
+  // Migrações
   const tableInfoCartoes = db
     .prepare("PRAGMA table_info(cartoes_credito)")
     .all();
@@ -88,6 +89,12 @@ function initDatabase() {
       "ALTER TABLE cartoes_credito ADD COLUMN cor TEXT DEFAULT '#D4A373'",
     );
   }
+  if (!tableInfoCartoes.some((col) => col.name === "limite_utilizado")) {
+    db.exec(
+      "ALTER TABLE cartoes_credito ADD COLUMN limite_utilizado REAL DEFAULT 0",
+    );
+  }
+
   const tableInfoContas = db
     .prepare("PRAGMA table_info(contas_bancarias)")
     .all();
@@ -162,11 +169,11 @@ function initDatabase() {
     .get().c;
   if (countCartoes === 0) {
     const insCartao = db.prepare(
-      "INSERT INTO cartoes_credito (nome, limite, dia_fechamento, dia_vencimento, observacoes, cor) VALUES (?, ?, ?, ?, ?, ?)",
+      "INSERT INTO cartoes_credito (nome, limite, dia_fechamento, dia_vencimento, observacoes, cor, limite_utilizado) VALUES (?, ?, ?, ?, ?, ?, ?)",
     );
-    insCartao.run("Cartão Nubank", 5000.0, 10, 15, "", "#D4A373");
-    insCartao.run("Cartão Itaú", 8000.0, 5, 10, "", "#A67C52");
-    insCartao.run("Cartão Inter", 3000.0, 20, 25, "", "#C76B4A");
+    insCartao.run("Cartão Nubank", 5000.0, 10, 15, "", "#D4A373", 0);
+    insCartao.run("Cartão Itaú", 8000.0, 5, 10, "", "#A67C52", 0);
+    insCartao.run("Cartão Inter", 3000.0, 20, 25, "", "#C76B4A", 0);
   }
 
   const countLanc = db.prepare("SELECT COUNT(*) as c FROM lancamentos").get().c;
@@ -283,6 +290,9 @@ function initDatabase() {
     ];
     for (const ex of exemplos) insert.run(...ex);
   }
+
+  // Sincronizar limites dos cartões com os lançamentos existentes
+  atualizarLimitesCartoes();
 }
 
 // ---------- CRUD Lancamentos ----------
@@ -294,7 +304,7 @@ function insertLancamento(data) {
   const stmt = db.prepare(`INSERT INTO lancamentos 
     (data, tipo, categoria, descricao, valor, meio, destino, status, mes, compra, parcela, observacoes, parcelamento_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  return stmt.run(
+  const result = stmt.run(
     data.data,
     data.tipo,
     data.categoria,
@@ -309,13 +319,15 @@ function insertLancamento(data) {
     data.observacoes || "",
     data.parcelamento_id || null,
   );
+  atualizarLimitesCartoes();
+  return result;
 }
 
 function updateLancamento(id, data) {
   const stmt = db.prepare(`UPDATE lancamentos SET 
     data=?, tipo=?, categoria=?, descricao=?, valor=?, meio=?, destino=?, status=?, mes=?, compra=?, parcela=?, observacoes=?, parcelamento_id=?
     WHERE id=?`);
-  return stmt.run(
+  const result = stmt.run(
     data.data,
     data.tipo,
     data.categoria,
@@ -331,10 +343,14 @@ function updateLancamento(id, data) {
     data.parcelamento_id || null,
     id,
   );
+  atualizarLimitesCartoes();
+  return result;
 }
 
 function deleteLancamento(id) {
-  return db.prepare("DELETE FROM lancamentos WHERE id=?").run(id);
+  const result = db.prepare("DELETE FROM lancamentos WHERE id=?").run(id);
+  atualizarLimitesCartoes();
+  return result;
 }
 
 // ---------- CRUD Parcelamentos com sincronização ----------
@@ -386,7 +402,9 @@ function updateParcelamento(id, data) {
 
 function deleteParcelamento(id) {
   removerLancamentosPorParcelamento(id);
-  return db.prepare("DELETE FROM parcelamentos WHERE id=?").run(id);
+  const result = db.prepare("DELETE FROM parcelamentos WHERE id=?").run(id);
+  atualizarLimitesCartoes();
+  return result;
 }
 
 function removerLancamentosPorParcelamento(parcelamentoId) {
@@ -465,6 +483,7 @@ function sincronizarParcelamento(parcelamentoId) {
       lanc.parcelamento_id,
     );
   }
+  atualizarLimitesCartoes();
 }
 
 // ---------- CRUD Metas ----------
@@ -554,7 +573,7 @@ function getCartoesCredito() {
 
 function insertCartaoCredito(data) {
   const stmt = db.prepare(
-    "INSERT INTO cartoes_credito (nome, limite, dia_fechamento, dia_vencimento, observacoes, cor) VALUES (?, ?, ?, ?, ?, ?)",
+    "INSERT INTO cartoes_credito (nome, limite, dia_fechamento, dia_vencimento, observacoes, cor, limite_utilizado) VALUES (?, ?, ?, ?, ?, ?, ?)",
   );
   return stmt.run(
     data.nome,
@@ -563,12 +582,13 @@ function insertCartaoCredito(data) {
     data.dia_vencimento || 0,
     data.observacoes || "",
     data.cor || "#D4A373",
+    data.limite_utilizado || 0,
   );
 }
 
 function updateCartaoCredito(id, data) {
   const stmt = db.prepare(
-    "UPDATE cartoes_credito SET nome=?, limite=?, dia_fechamento=?, dia_vencimento=?, observacoes=?, cor=? WHERE id=?",
+    "UPDATE cartoes_credito SET nome=?, limite=?, dia_fechamento=?, dia_vencimento=?, observacoes=?, cor=?, limite_utilizado=? WHERE id=?",
   );
   return stmt.run(
     data.nome,
@@ -577,6 +597,7 @@ function updateCartaoCredito(id, data) {
     data.dia_vencimento || 0,
     data.observacoes || "",
     data.cor || "#D4A373",
+    data.limite_utilizado || 0,
     id,
   );
 }
@@ -720,6 +741,22 @@ function getUltimosLancamentosGeral(limit = 10) {
     .all(limit);
 }
 
+// ---------- Sincronização de Limites dos Cartões ----------
+function atualizarLimitesCartoes() {
+  const cartoes = db.prepare("SELECT id, nome FROM cartoes_credito").all();
+  for (const cartao of cartoes) {
+    const total = db
+      .prepare(
+        "SELECT SUM(valor) as total FROM lancamentos WHERE tipo='Despesa' AND meio = ? AND status='Realizado'",
+      )
+      .get(cartao.nome);
+    const utilizado = total.total || 0;
+    db.prepare(
+      "UPDATE cartoes_credito SET limite_utilizado = ? WHERE id = ?",
+    ).run(utilizado, cartao.id);
+  }
+}
+
 module.exports = {
   initDatabase,
   getLancamentos,
@@ -752,4 +789,5 @@ module.exports = {
   getResumoGeral,
   getCategoriasGeral,
   getUltimosLancamentosGeral,
+  atualizarLimitesCartoes,
 };
