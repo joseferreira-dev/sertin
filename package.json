@@ -1,18 +1,39 @@
 {
-  "name": "sertin",
-  "version": "1.0.0",
-  "description": "Sistema de Controle Financeiro Desktop",
-  "main": "main.js",
-  "scripts": {
-    "start": "electron ."
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "devDependencies": {
-    "electron": "^42.4.1"
-  },
-  "dependencies": {
-    "better-sqlite3": "^12.11.1"
-  }
+    "name": "sertin",
+    "version": "1.0.0",
+    "description": "Sistema de Controle Financeiro Desktop",
+    "main": "main.js",
+    "scripts": {
+        "start": "electron .",
+        "dist": "electron-builder",
+        "postinstall": "electron-rebuild"
+    },
+    "keywords": [],
+    "author": "",
+    "license": "ISC",
+    "build": {
+        "appId": "br.com.sertin",
+        "productName": "Sertin",
+        "directories": {
+            "output": "dist"
+        },
+        "win": {
+            "target": "nsis",
+            "icon": "assets/icon.ico"
+        },
+        "nsis": {
+            "oneClick": false,
+            "allowToChangeInstallationDirectory": true,
+            "createDesktopShortcut": true,
+            "createStartMenuShortcut": true
+        }
+    },
+    "devDependencies": {
+        "electron": "^42.4.1",
+        "electron-builder": "^26.15.3",
+        "electron-rebuild": "^3.2.9"
+    },
+    "dependencies": {
+        "better-sqlite3": "^12.11.1"
+    }
 }
