@@ -1,59 +1,163 @@
-import { useState } from 'react'
-import { Plus, X, Pencil, EyeOff, CreditCard, Wallet, Building2, PiggyBank, Banknote } from 'lucide-react'
-import { mockAccounts as initialAccounts, formatBRL, netWorth } from '../data/mock'
+import { useState, useEffect } from 'react';
+import { Plus, X, Pencil, Trash2, CreditCard, Wallet, Building2, PiggyBank, Banknote, Power, PowerOff } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { accountService, Account } from '../services/accountService';
+import { formatBRL } from '../data/mock';
 
-const iconMap: Record<string, any> = { CreditCard, Wallet, Building2, PiggyBank, Banknote }
+const iconMap: Record<string, any> = { CreditCard, Wallet, Building2, PiggyBank, Banknote };
 
 const typeLabel: Record<string, string> = {
-  checking: 'Conta Corrente', savings: 'Poupança', cash: 'Dinheiro Físico',
-  credit: 'Cartão de Crédito', digital: 'Carteira Digital',
-}
+  checking: 'Conta Corrente',
+  savings: 'Poupança',
+  cash: 'Dinheiro Físico',
+  credit: 'Cartão de Crédito',
+  digital: 'Carteira Digital',
+};
 
 export default function Accounts() {
-  const [accounts, setAccounts] = useState(initialAccounts as any[])
-  const [showModal, setShowModal] = useState(false)
-  const [editId, setEditId] = useState<number | null>(null)
-  const [form, setForm] = useState({ name: '', type: 'checking', balance: '', color: '#10b981', institution: '', limit: '', closing: '', due: '' })
-  const [confirmHide, setConfirmHide] = useState<number | null>(null)
+  const { token } = useAuth();
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [form, setForm] = useState({
+    name: '',
+    type: 'checking' as Account['type'],
+    balance: '',
+    color: '#10b981',
+    institution: '',
+    limit: '',
+    closing: '',
+    due: '',
+    status: 'active' as 'active' | 'inactive', // alterado
+  });
+  const [confirmAction, setConfirmAction] = useState<{ type: 'delete' | 'toggle'; id: number } | null>(null);
 
-  const nw = accounts.filter(a => a.balance > 0).reduce((s: number, a: any) => s + a.balance, 0) -
-    accounts.filter(a => a.balance < 0).reduce((s: number, a: any) => s + Math.abs(a.balance), 0)
+  const loadAccounts = async () => {
+    try {
+      setLoading(true);
+      // Busca todas as contas (incluindo inativas) para exibição
+      const data = await accountService.getAll(token!);
+      setAccounts(data);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (token) loadAccounts();
+  }, [token]);
+
+  const netWorth = accounts.filter(a => a.status === 'active').reduce((s, a) => s + a.balance, 0);
 
   const openNew = () => {
-    setForm({ name: '', type: 'checking', balance: '', color: '#10b981', institution: '', limit: '', closing: '', due: '' })
-    setEditId(null); setShowModal(true)
-  }
+    setForm({ name: '', type: 'checking', balance: '', color: '#10b981', institution: '', limit: '', closing: '', due: '', status: 'active' });
+    setEditId(null);
+    setShowModal(true);
+  };
 
-  const openEdit = (acc: any) => {
-    setForm({ name: acc.name, type: acc.type, balance: String(acc.balance), color: acc.color, institution: acc.institution, limit: acc.limit || '', closing: acc.closing || '', due: acc.due || '' })
-    setEditId(acc.id); setShowModal(true)
-  }
+  const openEdit = (acc: Account) => {
+    setForm({
+      name: acc.name,
+      type: acc.type,
+      balance: String(acc.balance),
+      color: acc.color,
+      institution: acc.institution || '',
+      limit: acc.limit_amount ? String(acc.limit_amount) : '',
+      closing: acc.closing_day ? String(acc.closing_day) : '',
+      due: acc.due_day ? String(acc.due_day) : '',
+      status: acc.status,
+    });
+    setEditId(acc.id);
+    setShowModal(true);
+  };
 
-  const save = () => {
-    if (editId) {
-      setAccounts(prev => prev.map(a => a.id === editId ? { ...a, name: form.name, color: form.color, institution: form.institution, limit: parseFloat(form.limit) || undefined, closing: parseInt(form.closing) || undefined, due: parseInt(form.due) || undefined } : a))
-    } else {
-      const id = Math.max(...accounts.map((a: any) => a.id)) + 1
-      setAccounts(prev => [...prev, {
-        id, name: form.name, type: form.type,
-        balance: parseFloat(form.balance.replace(',', '.')) || 0,
-        color: form.color, institution: form.institution,
-        icon: form.type === 'credit' ? 'CreditCard' : form.type === 'cash' ? 'Banknote' : form.type === 'savings' ? 'PiggyBank' : 'Wallet',
-        limit: parseFloat(form.limit) || undefined, closing: parseInt(form.closing) || undefined, due: parseInt(form.due) || undefined,
-      }])
+  const save = async () => {
+    try {
+      if (editId) {
+        await accountService.update(editId, {
+          name: form.name,
+          color: form.color,
+          institution: form.institution,
+          limit_amount: parseFloat(form.limit) || undefined,
+          closing_day: parseInt(form.closing) || undefined,
+          due_day: parseInt(form.due) || undefined,
+          status: form.status, // enviar status
+        }, token!);
+      } else {
+        await accountService.create({
+          name: form.name,
+          type: form.type,
+          balance: parseFloat(form.balance.replace(',', '.')) || 0,
+          color: form.color,
+          institution: form.institution,
+          icon: form.type === 'credit' ? 'CreditCard' : form.type === 'cash' ? 'Banknote' : form.type === 'savings' ? 'PiggyBank' : 'Wallet',
+          limit_amount: parseFloat(form.limit) || undefined,
+          closing_day: parseInt(form.closing) || undefined,
+          due_day: parseInt(form.due) || undefined,
+          status: form.status,
+        }, token!);
+      }
+      setShowModal(false);
+      await loadAccounts();
+    } catch (err: any) {
+      alert(err.message);
     }
-    setShowModal(false)
+  };
+
+  const toggleActive = async (id: number) => {
+    try {
+      const account = accounts.find(a => a.id === id);
+      if (!account) return;
+      const newStatus = account.status === 'active' ? 'inactive' : 'active';
+      await accountService.update(id, { status: newStatus }, token!);
+      await loadAccounts();
+      setConfirmAction(null);
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const deleteAccount = async (id: number) => {
+    try {
+      await accountService.delete(id, token!);
+      await loadAccounts();
+      setConfirmAction(null);
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      </div>
+    );
   }
 
-  const balanceClass = (b: number) => b >= 0 ? 'var(--primary)' : 'var(--danger)'
+  if (error) {
+    return (
+      <div className="text-center py-10" style={{ color: 'var(--danger)' }}>
+        Erro ao carregar contas: {error}
+      </div>
+    );
+  }
+
+  const balanceClass = (b: number) => b >= 0 ? 'var(--primary)' : 'var(--danger)';
 
   return (
     <div className="max-w-6xl mx-auto">
-      {/* Header + Net Worth */}
+      {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-lg font-bold" style={{ letterSpacing: '-0.03em' }}>Contas</h1>
-          <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>{accounts.length} conta(s) cadastrada(s)</p>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
+            {accounts.filter(a => a.status === 'active').length} ativa(s) · {accounts.filter(a => a.status !== 'active').length} inativa(s)
+          </p>
         </div>
         <button onClick={openNew} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90" style={{ background: 'var(--primary)', color: '#fff' }}>
           <Plus size={14} /> Nova conta
@@ -63,31 +167,36 @@ export default function Accounts() {
       {/* Net Worth Banner */}
       <div className="rounded-xl p-5 mb-6 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(99,102,241,0.08) 100%)', border: '1px solid rgba(16,185,129,0.2)' }}>
         <div>
-          <p className="text-xs font-semibold mb-1" style={{ color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Patrimônio Líquido</p>
-          <p className="text-3xl font-bold mono" style={{ color: 'var(--primary)', letterSpacing: '-0.05em' }}>{formatBRL(nw)}</p>
+          <p className="text-xs font-semibold mb-1" style={{ color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Patrimônio Líquido (contas ativas)</p>
+          <p className="text-3xl font-bold mono" style={{ color: 'var(--primary)', letterSpacing: '-0.05em' }}>{formatBRL(netWorth)}</p>
         </div>
         <div className="flex gap-8 text-right">
           <div>
             <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>Total Ativos</p>
-            <p className="text-base font-semibold mono" style={{ color: 'var(--primary)' }}>{formatBRL(accounts.filter((a: any) => a.balance > 0).reduce((s: number, a: any) => s + a.balance, 0))}</p>
+            <p className="text-base font-semibold mono" style={{ color: 'var(--primary)' }}>{formatBRL(accounts.filter(a => a.status === 'active' && a.balance > 0).reduce((s, a) => s + a.balance, 0))}</p>
           </div>
           <div>
             <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>Total Passivos</p>
-            <p className="text-base font-semibold mono" style={{ color: 'var(--danger)' }}>{formatBRL(accounts.filter((a: any) => a.balance < 0).reduce((s: number, a: any) => s + Math.abs(a.balance), 0))}</p>
+            <p className="text-base font-semibold mono" style={{ color: 'var(--danger)' }}>{formatBRL(accounts.filter(a => a.status === 'active' && a.balance < 0).reduce((s, a) => s + Math.abs(a.balance), 0))}</p>
           </div>
         </div>
       </div>
 
       {/* Account Cards Grid */}
       <div className="grid grid-cols-3 gap-4">
-        {accounts.map((acc: any) => {
-          const Icon = iconMap[acc.icon] || Wallet
-          const isCredit = acc.type === 'credit'
-          const usedPct = isCredit ? (Math.abs(acc.balance) / (acc.limit || 1)) * 100 : 0
+        {accounts.map((acc) => {
+          const Icon = iconMap[acc.icon] || Wallet;
+          const isCredit = acc.type === 'credit';
+          const usedPct = isCredit && acc.limit_amount ? (Math.abs(acc.balance) / (acc.limit_amount || 1)) * 100 : 0;
+          const isActive = acc.status === 'active';
           return (
-            <div key={acc.id} className="rounded-xl p-5 relative overflow-hidden group" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-              {/* Color bar */}
+            <div key={acc.id} className={`rounded-xl p-5 relative overflow-hidden group ${!isActive ? 'opacity-60' : ''}`} style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
               <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl" style={{ background: acc.color }} />
+              {!isActive && (
+                <div className="absolute top-2 right-2 text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--secondary)', color: 'var(--muted-foreground)' }}>
+                  Inativa
+                </div>
+              )}
 
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-2.5">
@@ -103,8 +212,11 @@ export default function Accounts() {
                   <button onClick={() => openEdit(acc)} className="w-6 h-6 rounded flex items-center justify-center" style={{ color: 'var(--muted-foreground)' }}>
                     <Pencil size={12} />
                   </button>
-                  <button onClick={() => setConfirmHide(acc.id)} className="w-6 h-6 rounded flex items-center justify-center" style={{ color: 'var(--danger)' }}>
-                    <EyeOff size={12} />
+                  <button onClick={() => setConfirmAction({ type: 'toggle', id: acc.id })} className="w-6 h-6 rounded flex items-center justify-center" style={{ color: isActive ? 'var(--warning)' : 'var(--primary)' }}>
+                    {isActive ? <PowerOff size={12} /> : <Power size={12} />}
+                  </button>
+                  <button onClick={() => setConfirmAction({ type: 'delete', id: acc.id })} className="w-6 h-6 rounded flex items-center justify-center" style={{ color: 'var(--danger)' }}>
+                    <Trash2 size={12} />
                   </button>
                 </div>
               </div>
@@ -116,30 +228,29 @@ export default function Accounts() {
               <div className="mb-1">
                 <p className="text-xs mb-0.5" style={{ color: 'var(--muted-foreground)' }}>{isCredit ? 'Fatura atual' : 'Saldo'}</p>
                 <p className="text-xl font-bold mono" style={{ color: balanceClass(acc.balance), letterSpacing: '-0.04em' }}>
-                  {acc.balance < 0 ? '' : ''}{formatBRL(Math.abs(acc.balance))}
+                  {formatBRL(Math.abs(acc.balance))}
                 </p>
               </div>
 
-              {isCredit && acc.limit && (
+              {isCredit && acc.limit_amount && (
                 <>
                   <div className="flex justify-between text-xs mb-1.5 mt-3" style={{ color: 'var(--muted-foreground)' }}>
-                    <span>Limite disponível: <span className="font-medium" style={{ color: 'var(--foreground)' }}>{formatBRL(acc.limit - Math.abs(acc.balance))}</span></span>
+                    <span>Limite disponível: <span className="font-medium" style={{ color: 'var(--foreground)' }}>{formatBRL(acc.limit_amount - Math.abs(acc.balance))}</span></span>
                     <span>{Math.round(usedPct)}%</span>
                   </div>
                   <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--secondary)' }}>
                     <div className="h-full rounded-full" style={{ width: `${usedPct}%`, background: usedPct > 85 ? 'var(--danger)' : usedPct > 60 ? 'var(--warning)' : acc.color }} />
                   </div>
                   <div className="flex justify-between text-xs mt-2" style={{ color: 'var(--muted-foreground)' }}>
-                    <span>Fechamento: dia {acc.closing}</span>
-                    <span>Vencimento: dia {acc.due}</span>
+                    <span>Fechamento: dia {acc.closing_day}</span>
+                    <span>Vencimento: dia {acc.due_day}</span>
                   </div>
                 </>
               )}
             </div>
-          )
+          );
         })}
 
-        {/* Add card */}
         <button onClick={openNew} className="rounded-xl p-5 flex flex-col items-center justify-center gap-2 transition-all hover:opacity-80" style={{ border: '2px dashed var(--border)', minHeight: 140 }}>
           <Plus size={20} style={{ color: 'var(--muted-foreground)' }} />
           <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Adicionar conta</span>
@@ -163,7 +274,7 @@ export default function Accounts() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Tipo *</label>
-                  <select value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value }))} className="w-full" disabled={!!editId}>
+                  <select value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value as Account['type'] }))} className="w-full" disabled={!!editId}>
                     <option value="checking">Conta Corrente</option>
                     <option value="savings">Poupança</option>
                     <option value="cash">Dinheiro Físico</option>
@@ -213,6 +324,18 @@ export default function Accounts() {
                   </div>
                 </div>
               )}
+
+              <div className="flex items-center gap-3">
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Status</label>
+                <button
+                  type="button"
+                  onClick={() => setForm(p => ({ ...p, status: p.status === 'active' ? 'inactive' : 'active' }))}
+                  className={`relative w-10 h-6 rounded-full transition-all ${form.status === 'active' ? 'bg-primary' : 'bg-border'}`}
+                >
+                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${form.status === 'active' ? 'left-5' : 'left-1'}`} />
+                </button>
+                <span className="text-xs">{form.status === 'active' ? 'Ativa' : 'Inativa'}</span>
+              </div>
             </div>
 
             <div className="flex gap-3 px-6 pb-6">
@@ -225,21 +348,34 @@ export default function Accounts() {
         </div>
       )}
 
-      {/* Confirm hide */}
-      {confirmHide && (
+      {/* Confirm Action Modal */}
+      {confirmAction && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(7,9,13,0.8)' }}>
           <div className="w-80 rounded-xl p-6" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-            <h3 className="font-semibold mb-2">Ocultar conta</h3>
+            <h3 className="font-semibold mb-2">
+              {confirmAction.type === 'delete' ? 'Excluir conta' : 'Alterar status'}
+            </h3>
             <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>
-              A conta será ocultada das listagens, mas o histórico de transações será mantido para relatórios futuros.
+              {confirmAction.type === 'delete'
+                ? 'Esta ação excluirá a conta permanentemente. Só é permitido se não houver transações vinculadas.'
+                : 'Deseja alterar o status da conta entre ativa e inativa? Contas inativas não podem ser usadas em novas transações.'}
             </p>
             <div className="flex gap-2">
-              <button onClick={() => setConfirmHide(null)} className="flex-1 py-2 rounded-lg text-sm" style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}>Cancelar</button>
-              <button onClick={() => { setAccounts(p => p.filter(a => a.id !== confirmHide)); setConfirmHide(null) }} className="flex-1 py-2 rounded-lg text-sm font-medium text-white" style={{ background: 'var(--danger)' }}>Ocultar</button>
+              <button onClick={() => setConfirmAction(null)} className="flex-1 py-2 rounded-lg text-sm" style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}>Cancelar</button>
+              <button
+                onClick={() => {
+                  if (confirmAction.type === 'delete') deleteAccount(confirmAction.id);
+                  else toggleActive(confirmAction.id);
+                }}
+                className="flex-1 py-2 rounded-lg text-sm font-medium text-white"
+                style={{ background: confirmAction.type === 'delete' ? 'var(--danger)' : 'var(--primary)' }}
+              >
+                Confirmar
+              </button>
             </div>
           </div>
         </div>
       )}
     </div>
-  )
+  );
 }

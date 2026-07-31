@@ -5,6 +5,7 @@ import { authMiddleware } from '../middlewares/auth';
 const router = Router();
 router.use(authMiddleware);
 router.get('/', accountController.getAll);
+router.get('/net-worth', accountController.getNetWorth);
 router.get('/:id', accountController.getOne);
 router.post('/', accountController.create);
 router.put('/:id', accountController.update);

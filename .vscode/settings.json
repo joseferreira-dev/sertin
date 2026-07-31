@@ -1,0 +1,47 @@
+{
+  "editor.tabSize": 2,
+  "editor.insertSpaces": true,
+  "editor.detectIndentation": false,
+
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "always"
+  },
+
+  "files.eol": "\n",
+  "files.trimTrailingWhitespace": true,
+  "files.insertFinalNewline": true,
+
+  "js/ts.updateImportsOnFileMove.enabled": "always",
+
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+
+  "[typescript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[typescriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascript]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+  "[javascriptreact]": {
+    "editor.defaultFormatter": "esbenp.prettier-vscode"
+  },
+
+  "tailwindCSS.includeLanguages": {
+    "typescriptreact": "html"
+  },
+
+  "tailwindCSS.experimental.classRegex": [
+    ["className=\\\"([^\\\"]*)\\\"", "([^\\\"]*)"],
+    ["class=\\\"([^\\\"]*)\\\"", "([^\\\"]*)"]
+  ],
+
+  "explorer.excludeGitIgnore": true,
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "**/build": true
+  }
+}

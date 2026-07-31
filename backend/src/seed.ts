@@ -13,13 +13,13 @@ export function seed() {
     console.log('Inserindo dados iniciais...');
 
     // 1. Criar usuário
-    const password = '123456';
+    const password = 'Jose2569*';
     const hash = bcrypt.hashSync(password, 12);
     const stmt = db.prepare(`
       INSERT INTO users (name, email, password_hash, security_question, security_answer)
       VALUES (?, ?, ?, ?, ?)
     `);
-    const info = stmt.run('Lucas Ferreira', 'lucas@sertin.app', hash, 'Qual é o nome do seu primeiro animal de estimação?', 'Luna');
+    const info = stmt.run('José Ferreira', 'jose@sertin.app', hash, 'Qual é o seu pokemon favorito?', 'Gengar');
     const userId = info.lastInsertRowid as number;
 
     // 2. Criar contas padrão

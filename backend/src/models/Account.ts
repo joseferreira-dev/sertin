@@ -12,7 +12,7 @@ export interface IAccount {
   limit_amount?: number;
   closing_day?: number;
   due_day?: number;
-  hidden?: boolean;
+  status: 'active' | 'inactive';
   created_at?: string;
   updated_at?: string;
 }
@@ -20,7 +20,7 @@ export interface IAccount {
 export class Account {
   static create(data: Omit<IAccount, 'id' | 'created_at' | 'updated_at'>): number {
     const stmt = db.prepare(`
-      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, limit_amount, closing_day, due_day, hidden)
+      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, limit_amount, closing_day, due_day, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
@@ -34,14 +34,20 @@ export class Account {
       data.limit_amount || null,
       data.closing_day || null,
       data.due_day || null,
-      data.hidden || 0
+      data.status || 'active'
     );
     return info.lastInsertRowid as number;
   }
 
-  static findByUser(userId: number): IAccount[] {
-    const stmt = db.prepare('SELECT * FROM accounts WHERE user_id = ? AND hidden = 0 ORDER BY type, name');
-    return stmt.all(userId) as IAccount[];
+  static findByUser(userId: number, onlyActive: boolean = false): IAccount[] {
+    let sql = 'SELECT * FROM accounts WHERE user_id = ?';
+    const params: any[] = [userId];
+    if (onlyActive) {
+      sql += " AND status = 'active'";
+    }
+    sql += ' ORDER BY type, name';
+    const stmt = db.prepare(sql);
+    return stmt.all(...params) as IAccount[];
   }
 
   static findById(id: number, userId: number): IAccount | undefined {
@@ -50,31 +56,48 @@ export class Account {
   }
 
   static update(id: number, userId: number, data: Partial<IAccount>): void {
-    const fields = Object.keys(data).filter(k => k !== 'id' && k !== 'user_id' && k !== 'created_at');
+    const fields = Object.keys(data).filter(
+      (k) =>
+        k !== 'id' &&
+        k !== 'user_id' &&
+        k !== 'created_at' &&
+        k !== 'updated_at' &&
+        data[k as keyof IAccount] !== undefined
+    );
     if (fields.length === 0) return;
-    const setClause = fields.map(f => `${f} = ?`).join(', ');
-    const values = fields.map(f => data[f as keyof IAccount]);
-    const stmt = db.prepare(`UPDATE accounts SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`);
+    const setClause = fields.map((f) => `${f} = ?`).join(', ');
+    const values = fields.map((f) => data[f as keyof IAccount]);
+    const stmt = db.prepare(
+      `UPDATE accounts SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`
+    );
     stmt.run(...values, id, userId);
   }
 
   static delete(id: number, userId: number): void {
-    const stmt = db.prepare('UPDATE accounts SET hidden = 1 WHERE id = ? AND user_id = ?');
-    stmt.run(id, userId);
+    const checkStmt = db.prepare(`
+      SELECT COUNT(*) as count FROM transactions
+      WHERE (account_id = ? OR dest_account_id = ?) AND user_id = ?
+    `);
+    const { count } = checkStmt.get(id, id, userId) as { count: number };
+    if (count > 0) {
+      throw new Error('Não é possível excluir a conta pois existem transações vinculadas a ela.');
+    }
+    const delStmt = db.prepare('DELETE FROM accounts WHERE id = ? AND user_id = ?');
+    delStmt.run(id, userId);
   }
 
   static getNetWorth(userId: number): { assets: number; liabilities: number; netWorth: number } {
     const stmt = db.prepare(`
-      SELECT 
+      SELECT
         SUM(CASE WHEN type != 'credit' AND balance > 0 THEN balance ELSE 0 END) as assets,
         SUM(CASE WHEN type = 'credit' THEN ABS(balance) ELSE 0 END) as liabilities
-      FROM accounts WHERE user_id = ? AND hidden = 0
+      FROM accounts WHERE user_id = ? AND status = 'active'
     `);
     const row = stmt.get(userId) as { assets: number; liabilities: number };
     return {
       assets: row.assets || 0,
       liabilities: row.liabilities || 0,
-      netWorth: (row.assets || 0) - (row.liabilities || 0)
+      netWorth: (row.assets || 0) - (row.liabilities || 0),
     };
   }
 }

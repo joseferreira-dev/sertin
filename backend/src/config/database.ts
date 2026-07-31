@@ -39,10 +39,10 @@ db.exec(`
     color TEXT DEFAULT '#10b981',
     institution TEXT,
     icon TEXT DEFAULT 'Wallet',
-    limit_amount REAL,      -- para cartão de crédito
-    closing_day INTEGER,    -- dia de fechamento
-    due_day INTEGER,        -- dia de vencimento
-    hidden BOOLEAN DEFAULT 0,
+    limit_amount REAL,
+    closing_day INTEGER,
+    due_day INTEGER,
+    status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
