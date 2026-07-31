@@ -1,96 +1,132 @@
-# ============================================
-# Dependências
-# ============================================
-node_modules/
+# ==============================
+# GERAL
+# ==============================
 
-# ============================================
-# Banco de Dados
-# ============================================
-database/*.db
-database/*.db-shm
-database/*.db-wal
-
-# ============================================
-# Logs
-# ============================================
-logs/
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-
-# ============================================
-# Build Electron
-# ============================================
-dist/
-build/
-release/
-out/
-
-# Electron Builder
-*.blockmap
-*.exe
-*.msi
-*.deb
-*.rpm
-*.AppImage
-*.dmg
-*.snap
-
-# ============================================
-# Variáveis de Ambiente
-# ============================================
-.env
-.env.*
-!.env.example
-
-# ============================================
-# Sistema Operacional
-# ============================================
+# Arquivos do sistema operacional
 .DS_Store
 Thumbs.db
 desktop.ini
 
-# ============================================
-# IDEs e Editores
-# ============================================
+# Arquivos de editor e IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+*.iml
 
-# Arquivos de workspace
-*.code-workspace
+# Arquivos de log
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
-# ============================================
-# Cobertura de Testes
-# ============================================
+# Arquivos de ambiente (contêm segredos)
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Arquivos temporários
+tmp/
+temp/
+*.tmp
+node_modules/
+
+# ==============================
+# BACKEND (Node.js / TypeScript)
+# ==============================
+
+# Dependências
+backend/node_modules/
+backend/npm-debug.log*
+
+# Build e transpilação
+backend/dist/
+backend/build/
+backend/.tsbuildinfo
+
+# Banco de dados (SQLite)
+backend/data/*.db
+backend/data/*.db-journal
+backend/data/*.db-wal
+backend/data/*.db-shm
+*.db
+*.sqlite
+*.sqlite3
+
+# Arquivos de backup (backups manuais)
+backend/backups/
+*.backup
+
+# Relatórios exportados (gerados pelo sistema)
+backend/exports/
+*.pdf
+*.csv
+*.xlsx
+
+# Arquivos de upload de comprovantes
+backend/uploads/
+
+# ==============================
+# FRONTEND (React / Vite)
+# ==============================
+
+# Dependências
+frontend/node_modules/
+frontend/npm-debug.log*
+frontend/pnpm-lock.yaml  # opcional: se quiser manter no repositório, remova esta linha
+
+# Build e distribuição
+frontend/dist/
+frontend/build/
+frontend/.vite/
+
+# Arquivos gerados pelo Figma Make (se não precisar versionar)
+frontend/.figma/
+
+# ==============================
+# OUTROS (opcionais, mas úteis)
+# ==============================
+
+# Arquivos de cobertura de testes
 coverage/
 .nyc_output/
 
-# ============================================
-# Cache
-# ============================================
-.cache/
-.tmp/
-temp/
-tmp/
+# Arquivos de pacotes (lockfiles podem ser versionados ou não; recomendo versionar)
+# Se preferir não versionar, descomente:
+# pnpm-lock.yaml
+# package-lock.json
+# yarn.lock
 
-# ============================================
-# Arquivos temporários
-# ============================================
-*.bak
-*.swp
-*.swo
-*.tmp
+# ==============================
+# ELETRON (se houver na raiz futuramente)
+# ==============================
 
-# ============================================
-# Relatórios e Exportações
-# ============================================
-exports/
-reports/
+# Artefatos de build do Electron
+out/
+release/
+*.dmg
+*.exe
+*.deb
+*.rpm
+*.AppImage
+*.snap
 
-# ============================================
-# Arquivos gerados automaticamente
-# ============================================
-estrutura_de_pastas.txt
-codigo_completo.txt
+# ==============================
+# MISC
+# ==============================
+
+# Arquivos de projeto local (ex: compile.py, se você não quiser versionar)
+# compile.py   # se quiser ignorar
+# compiled_output.txt   # se gerado automaticamente
+
+# Dependências globais (não versionar)
+*.pem
+*.crt
+*.key
