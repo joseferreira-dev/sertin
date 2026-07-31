@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Eye, EyeOff, TrendingUp } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Props {
   onLogin: () => void;
@@ -9,6 +10,7 @@ interface Props {
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api/v1';
 
 export default function Login({ onLogin, onRegister }: Props) {
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
@@ -21,7 +23,6 @@ export default function Login({ onLogin, onRegister }: Props) {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // --- LOGIN ---
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -35,8 +36,7 @@ export default function Login({ onLogin, onRegister }: Props) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Erro ao fazer login');
       
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      login(data.token, data.user);
       onLogin();
     } catch (err: any) {
       setError(err.message);
@@ -45,7 +45,6 @@ export default function Login({ onLogin, onRegister }: Props) {
     }
   };
 
-  // --- REGISTER ---
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -65,9 +64,7 @@ export default function Login({ onLogin, onRegister }: Props) {
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Erro ao criar conta');
       
-      // Após registrar, faz login automaticamente
-      localStorage.setItem('token', data.token);
-      localStorage.setItem('user', JSON.stringify(data.user));
+      login(data.token, data.user);
       onLogin();
     } catch (err: any) {
       setError(err.message);
@@ -76,7 +73,6 @@ export default function Login({ onLogin, onRegister }: Props) {
     }
   };
 
-  // --- RECOVER PASSWORD ---
   const handleRecover = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -104,7 +100,6 @@ export default function Login({ onLogin, onRegister }: Props) {
     }
   };
 
-  // --- RENDERIZAÇÃO ---
   return (
     <div className="min-h-screen flex items-center justify-center" style={{ background: 'radial-gradient(ellipse at 50% 0%, #0e1a2e 0%, #07090d 60%)' }}>
       <div className="w-full max-w-sm">

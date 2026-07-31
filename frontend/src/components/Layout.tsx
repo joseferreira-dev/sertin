@@ -1,21 +1,21 @@
-import { useState } from 'react'
+import { useState } from 'react';
 import {
   LayoutDashboard, ListOrdered, Wallet, Tag, Bookmark,
   BarChart3, Target, FileText, ArrowLeftRight, Settings,
   Bell, Search, LogOut, TrendingUp, ChevronRight, Lock,
   Plus
-} from 'lucide-react'
-import { mockUser } from '../data/mock'
+} from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 export type Page =
   | 'dashboard' | 'transactions' | 'accounts' | 'categories'
-  | 'tags' | 'budgets' | 'goals' | 'reports' | 'import-export' | 'settings'
+  | 'tags' | 'budgets' | 'goals' | 'reports' | 'import-export' | 'settings';
 
 interface Props {
-  currentPage: Page
-  onNavigate: (page: Page) => void
-  onLogout: () => void
-  children: React.ReactNode
+  currentPage: Page;
+  onNavigate: (page: Page) => void;
+  onLogout: () => void;
+  children: React.ReactNode;
 }
 
 const nav = [
@@ -29,24 +29,27 @@ const nav = [
   { id: 'reports', label: 'Relatórios', Icon: FileText },
   { id: 'import-export', label: 'Importar/Exportar', Icon: ArrowLeftRight },
   { id: 'settings', label: 'Configurações', Icon: Settings },
-]
+];
 
 export default function Layout({ currentPage, onNavigate, onLogout, children }: Props) {
-  const [collapsed, setCollapsed] = useState(false)
-  const [showLockOverlay, setShowLockOverlay] = useState(false)
-  const [lockPw, setLockPw] = useState('')
-  const [lockError, setLockError] = useState(false)
-  const [notifOpen, setNotifOpen] = useState(false)
+  const { user } = useAuth();
+  const [collapsed, setCollapsed] = useState(false);
+  const [showLockOverlay, setShowLockOverlay] = useState(false);
+  const [lockPw, setLockPw] = useState('');
+  const [lockError, setLockError] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  const initials = user?.name?.split(' ').map(n => n[0]).join('').toUpperCase() || 'U';
 
   const unlock = () => {
     if (lockPw === '123456' || lockPw === 'senha') {
-      setShowLockOverlay(false)
-      setLockPw('')
-      setLockError(false)
+      setShowLockOverlay(false);
+      setLockPw('');
+      setLockError(false);
     } else {
-      setLockError(true)
+      setLockError(true);
     }
-  }
+  };
 
   return (
     <div className="flex min-h-screen" style={{ background: 'var(--background)' }}>
@@ -70,7 +73,7 @@ export default function Layout({ currentPage, onNavigate, onLogout, children }: 
         {/* Nav */}
         <nav className="flex-1 py-3 overflow-y-auto">
           {nav.map(({ id, label, Icon }) => {
-            const active = currentPage === id
+            const active = currentPage === id;
             return (
               <button
                 key={id}
@@ -86,7 +89,7 @@ export default function Layout({ currentPage, onNavigate, onLogout, children }: 
                 <Icon size={15} className="flex-shrink-0" />
                 {!collapsed && <span>{label}</span>}
               </button>
-            )
+            );
           })}
         </nav>
 
@@ -94,12 +97,12 @@ export default function Layout({ currentPage, onNavigate, onLogout, children }: 
         <div className="border-t p-3 flex-shrink-0" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center gap-2.5">
             <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0" style={{ background: 'var(--primary)', color: '#fff' }}>
-              {mockUser.initials}
+              {initials}
             </div>
             {!collapsed && (
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium truncate">{mockUser.name}</p>
-                <p className="text-xs truncate" style={{ color: 'var(--muted-foreground)' }}>{mockUser.email}</p>
+                <p className="text-xs font-medium truncate">{user?.name || 'Usuário'}</p>
+                <p className="text-xs truncate" style={{ color: 'var(--muted-foreground)' }}>{user?.email || ''}</p>
               </div>
             )}
           </div>
@@ -215,7 +218,9 @@ export default function Layout({ currentPage, onNavigate, onLogout, children }: 
               <Lock size={20} style={{ color: 'var(--muted-foreground)' }} />
             </div>
             <p className="font-semibold mb-1">Tela bloqueada</p>
-            <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>Olá, {mockUser.name.split(' ')[0]}. Digite sua senha para continuar.</p>
+            <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>
+              Olá, {user?.name?.split(' ')[0] || 'Usuário'}. Digite sua senha para continuar.
+            </p>
             <input
               type="password"
               placeholder="Senha"
@@ -234,5 +239,5 @@ export default function Layout({ currentPage, onNavigate, onLogout, children }: 
         </div>
       )}
     </div>
-  )
+  );
 }

@@ -1,41 +1,48 @@
-import { useState } from 'react'
-import Login from './components/Login'
-import Onboarding from './components/Onboarding'
-import Layout, { type Page } from './components/Layout'
-import Dashboard from './components/Dashboard'
-import Transactions from './components/Transactions'
-import Accounts from './components/Accounts'
-import Categories from './components/Categories'
-import Tags from './components/Tags'
-import Budgets from './components/Budgets'
-import Goals from './components/Goals'
-import Reports from './components/Reports'
-import Settings from './components/Settings'
-import ImportExport from './components/ImportExport'
+import { useState, useEffect } from 'react';
+import { useAuth } from './contexts/AuthContext';
+import Login from './components/Login';
+import Onboarding from './components/Onboarding';
+import Layout, { type Page } from './components/Layout';
+import Dashboard from './components/Dashboard';
+import Transactions from './components/Transactions';
+import Accounts from './components/Accounts';
+import Categories from './components/Categories';
+import Tags from './components/Tags';
+import Budgets from './components/Budgets';
+import Goals from './components/Goals';
+import Reports from './components/Reports';
+import Settings from './components/Settings';
+import ImportExport from './components/ImportExport';
 
-type AppView = 'login' | 'register' | 'onboarding' | 'app'
+type AppView = 'login' | 'register' | 'onboarding' | 'app';
 
 export default function App() {
-  const [view, setView] = useState<AppView>('login')
-  const [page, setPage] = useState<Page>('dashboard')
+  const { isAuthenticated, logout } = useAuth();
+  const [view, setView] = useState<AppView>('login');
+  const [page, setPage] = useState<Page>('dashboard');
 
-  const handleLogin = () => {
-    // Simulate checking if first run
-    const isFirstRun = false
-    setView(isFirstRun ? 'onboarding' : 'app')
-  }
+  // Redireciona para o app se já estiver autenticado
+  useEffect(() => {
+    if (isAuthenticated && (view === 'login' || view === 'register')) {
+      setView('app');
+    }
+  }, [isAuthenticated, view]);
 
-  const handleRegister = () => setView('onboarding')
-  const handleOnboardingComplete = () => setView('app')
-  const handleLogout = () => setView('login')
-  const navigate = (p: string) => setPage(p as Page)
+  const handleLogin = () => setView('app');
+  const handleRegister = () => setView('onboarding');
+  const handleOnboardingComplete = () => setView('app');
+  const handleLogout = () => {
+    logout();
+    setView('login');
+  };
+  const navigate = (p: string) => setPage(p as Page);
 
   if (view === 'login' || view === 'register') {
-    return <Login onLogin={handleLogin} onRegister={handleRegister} />
+    return <Login onLogin={handleLogin} onRegister={handleRegister} />;
   }
 
   if (view === 'onboarding') {
-    return <Onboarding onComplete={handleOnboardingComplete} />
+    return <Onboarding onComplete={handleOnboardingComplete} />;
   }
 
   return (
@@ -51,5 +58,5 @@ export default function App() {
       {page === 'import-export' && <ImportExport />}
       {page === 'settings' && <Settings onLogout={handleLogout} />}
     </Layout>
-  )
+  );
 }
