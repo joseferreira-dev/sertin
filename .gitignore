@@ -124,7 +124,7 @@ release/
 
 # Arquivos de projeto local (ex: compile.py, se você não quiser versionar)
 # compile.py   # se quiser ignorar
-# compiled_output.txt   # se gerado automaticamente
+compiled_output.txt   # se gerado automaticamente
 
 # Dependências globais (não versionar)
 *.pem

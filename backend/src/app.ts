@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import { errorHandler } from './middlewares/errorHandler';
 import routes from './routes';
+import { seed } from './seed';
 
 dotenv.config();
 
@@ -26,3 +27,5 @@ app.use(errorHandler);
 app.listen(PORT, () => {
   console.log(`🚀 Backend rodando em http://localhost:${PORT}`);
 });
+
+seed();
