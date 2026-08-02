@@ -86,11 +86,15 @@ export class Transaction {
   }
 
   static update(id: number, userId: number, data: Partial<ITransaction>): void {
-    const fields = Object.keys(data).filter(k => k !== 'id' && k !== 'user_id' && k !== 'created_at');
+    const fields = Object.keys(data).filter(
+      (k) => k !== 'id' && k !== 'user_id' && k !== 'created_at'
+    );
     if (fields.length === 0) return;
-    const setClause = fields.map(f => `${f} = ?`).join(', ');
-    const values = fields.map(f => data[f as keyof ITransaction]);
-    const stmt = db.prepare(`UPDATE transactions SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`);
+    const setClause = fields.map((f) => `${f} = ?`).join(', ');
+    const values = fields.map((f) => data[f as keyof ITransaction]);
+    const stmt = db.prepare(
+      `UPDATE transactions SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`
+    );
     stmt.run(...values, id, userId);
   }
 
@@ -102,16 +106,40 @@ export class Transaction {
   // Método para buscar transações com tags
   static findWithTags(userId: number, filters?: any): any[] {
     const txns = this.findByUser(userId, filters);
-    // Para cada transação, buscar tags associadas
+    return txns.map((txn) => {
+      const tags = this.getTags(txn.id!);
+      return { ...txn, tags };
+    });
+  }
+
+  static getTags(transactionId: number): any[] {
     const stmt = db.prepare(`
       SELECT t.* FROM tags t
       JOIN transaction_tags tt ON tt.tag_id = t.id
       WHERE tt.transaction_id = ?
     `);
-    return txns.map(txn => {
-      const tags = stmt.all(txn.id) as any[];
-      return { ...txn, tags };
+    return stmt.all(transactionId);
+  }
+
+  static addTags(transactionId: number, tagIds: number[]): void {
+    if (!tagIds.length) return;
+    const stmt = db.prepare(
+      'INSERT OR IGNORE INTO transaction_tags (transaction_id, tag_id) VALUES (?, ?)'
+    );
+    const insert = db.transaction((ids: number[]) => {
+      for (const tagId of ids) {
+        stmt.run(transactionId, tagId);
+      }
     });
+    insert(tagIds);
+  }
+
+  static setTags(transactionId: number, tagIds: number[]): void {
+    const delStmt = db.prepare('DELETE FROM transaction_tags WHERE transaction_id = ?');
+    delStmt.run(transactionId);
+    if (tagIds.length > 0) {
+      this.addTags(transactionId, tagIds);
+    }
   }
 
   // Atualizar saldo da conta após inserção/edição/exclusão de transação

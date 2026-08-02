@@ -19,21 +19,70 @@ export function seed() {
       INSERT INTO users (name, email, password_hash, security_question, security_answer)
       VALUES (?, ?, ?, ?, ?)
     `);
-    const info = stmt.run('José Ferreira', 'jose@sertin.app', hash, 'Qual é o seu pokemon favorito?', 'Gengar');
+    const info = stmt.run(
+      'José Ferreira',
+      'jose@sertin.app',
+      hash,
+      'Qual é o seu pokemon favorito?',
+      'Gengar'
+    );
     const userId = info.lastInsertRowid as number;
 
     // 2. Criar contas padrão
     const accounts = [
-      { name: 'Nubank', type: 'digital', balance: 4230.50, color: '#8b5cf6', institution: 'Nubank', icon: 'Wallet' },
-      { name: 'Bradesco CC', type: 'checking', balance: 12450.00, color: '#ef4444', institution: 'Bradesco', icon: 'Building2' },
-      { name: 'Poupança Bradesco', type: 'savings', balance: 8900.00, color: '#3b82f6', institution: 'Bradesco', icon: 'PiggyBank' },
-      { name: 'Cartão Inter', type: 'credit', balance: -3420.00, color: '#f97316', institution: 'Banco Inter', icon: 'CreditCard', limit_amount: 8000, closing_day: 15, due_day: 22 },
-      { name: 'Carteira', type: 'cash', balance: 350.00, color: '#10b981', institution: '', icon: 'Banknote' }
+      {
+        name: 'Nubank',
+        type: 'digital',
+        balance: 4230.5,
+        color: '#8b5cf6',
+        institution: 'Nubank',
+        icon: 'Wallet',
+        status: 'active',
+      },
+      {
+        name: 'Bradesco CC',
+        type: 'checking',
+        balance: 12450.0,
+        color: '#ef4444',
+        institution: 'Bradesco',
+        icon: 'Building2',
+        status: 'active',
+      },
+      {
+        name: 'Poupança Bradesco',
+        type: 'savings',
+        balance: 8900.0,
+        color: '#3b82f6',
+        institution: 'Bradesco',
+        icon: 'PiggyBank',
+        status: 'active',
+      },
+      {
+        name: 'Cartão Inter',
+        type: 'credit',
+        balance: -3420.0,
+        color: '#f97316',
+        institution: 'Banco Inter',
+        icon: 'CreditCard',
+        limit_amount: 8000,
+        closing_day: 15,
+        due_day: 22,
+        status: 'active',
+      },
+      {
+        name: 'Carteira',
+        type: 'cash',
+        balance: 350.0,
+        color: '#10b981',
+        institution: '',
+        icon: 'Banknote',
+        status: 'active',
+      },
     ];
 
     const accStmt = db.prepare(`
-      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, limit_amount, closing_day, due_day)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, limit_amount, closing_day, due_day, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const acc of accounts) {
       accStmt.run(
@@ -46,7 +95,8 @@ export function seed() {
         acc.icon,
         acc.limit_amount || null,
         acc.closing_day || null,
-        acc.due_day || null
+        acc.due_day || null,
+        acc.status || 'active'
       );
     }
 
@@ -59,7 +109,7 @@ export function seed() {
       { name: 'Lazer', type: 'expense', color: '#ec4899', icon: 'Gamepad2' },
       { name: 'Educação', type: 'expense', color: '#06b6d4', icon: 'BookOpen' },
       { name: 'Salário', type: 'income', color: '#10b981', icon: 'Banknote' },
-      { name: 'Freelance', type: 'income', color: '#22d3ee', icon: 'Laptop' }
+      { name: 'Freelance', type: 'income', color: '#22d3ee', icon: 'Laptop' },
     ];
 
     const catStmt = db.prepare(`
@@ -88,7 +138,7 @@ export function seed() {
       { parent: 'Saúde', name: 'Consulta' },
       { parent: 'Saúde', name: 'Plano de Saúde' },
       { parent: 'Lazer', name: 'Streaming' },
-      { parent: 'Lazer', name: 'Viagens' }
+      { parent: 'Lazer', name: 'Viagens' },
     ];
     const subStmt = db.prepare(`
       INSERT INTO categories (user_id, name, type, color, icon, parent_id)
@@ -99,6 +149,26 @@ export function seed() {
       if (parentId) {
         subStmt.run(userId, sub.name, 'expense', '#6366f1', 'Tag', parentId);
       }
+    }
+
+    // 4. Tags padrão
+    const tags = [
+      { name: 'Fixo', color: '#6366f1', description: 'Despesas fixas mensais' },
+      { name: 'Parcelado', color: '#f59e0b', description: 'Compras parceladas' },
+      { name: 'Trabalho', color: '#3b82f6', description: 'Gastos relacionados ao trabalho' },
+      { name: 'Presente', color: '#ec4899', description: 'Presentes para outras pessoas' },
+      { name: 'Viagem Europa', color: '#10b981', description: 'Economias para viagem à Europa' },
+      { name: 'Marido', color: '#8b5cf6', description: 'Gastos compartilhados com o marido' },
+      { name: 'Urgente', color: '#ef4444', description: 'Pagamentos urgentes' },
+      { name: 'Família', color: '#f97316', description: 'Gastos com a família' },
+    ];
+
+    const tagStmt = db.prepare(`
+      INSERT INTO tags (user_id, name, color, description)
+      VALUES (?, ?, ?, ?)
+    `);
+    for (const tag of tags) {
+      tagStmt.run(userId, tag.name, tag.color, tag.description);
     }
 
     console.log('✅ Dados iniciais inseridos com sucesso!');

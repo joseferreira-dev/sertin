@@ -3,16 +3,16 @@ export const mockUser = {
   name: 'Lucas Ferreira',
   email: 'lucas@sertin.app',
   initials: 'LF',
-}
+};
 
 export const mockAccounts = [
-  { id: 1, name: 'Nubank', type: 'digital', balance: 4230.50, color: '#8b5cf6', institution: 'Nubank', icon: 'Wallet' },
-  { id: 2, name: 'Bradesco CC', type: 'checking', balance: 12450.00, color: '#ef4444', institution: 'Bradesco', icon: 'Building2' },
-  { id: 3, name: 'Poupança Bradesco', type: 'savings', balance: 8900.00, color: '#3b82f6', institution: 'Bradesco', icon: 'PiggyBank' },
-  { id: 4, name: 'Cartão Inter', type: 'credit', balance: -3420.00, limit: 8000, color: '#f97316', institution: 'Banco Inter', icon: 'CreditCard', closing: 15, due: 22 },
-  { id: 5, name: 'Nubank Roxinho', type: 'credit', balance: -1280.00, limit: 5000, color: '#a855f7', institution: 'Nubank', icon: 'CreditCard', closing: 10, due: 17 },
-  { id: 6, name: 'Carteira', type: 'cash', balance: 350.00, color: '#10b981', institution: '', icon: 'Banknote' },
-]
+  { id: 1, name: 'Nubank', type: 'digital', balance: 4230.50, color: '#8b5cf6', institution: 'Nubank', icon: 'Wallet', status: 'active' },
+  { id: 2, name: 'Bradesco CC', type: 'checking', balance: 12450.00, color: '#ef4444', institution: 'Bradesco', icon: 'Building2', status: 'active' },
+  { id: 3, name: 'Poupança Bradesco', type: 'savings', balance: 8900.00, color: '#3b82f6', institution: 'Bradesco', icon: 'PiggyBank', status: 'active' },
+  { id: 4, name: 'Cartão Inter', type: 'credit', balance: -3420.00, limit_amount: 8000, color: '#f97316', institution: 'Banco Inter', icon: 'CreditCard', closing_day: 15, due_day: 22, status: 'active' },
+  { id: 5, name: 'Nubank Roxinho', type: 'credit', balance: -1280.00, limit_amount: 5000, color: '#a855f7', institution: 'Nubank', icon: 'CreditCard', closing_day: 10, due_day: 17, status: 'active' },
+  { id: 6, name: 'Carteira', type: 'cash', balance: 350.00, color: '#10b981', institution: '', icon: 'Banknote', status: 'active' },
+];
 
 export const mockCategories = [
   { id: 1, name: 'Moradia', type: 'expense', color: '#6366f1', icon: 'Home', children: [

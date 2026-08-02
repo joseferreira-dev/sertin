@@ -95,6 +95,7 @@ db.exec(`
     name TEXT NOT NULL,
     color TEXT DEFAULT '#6366f1',
     description TEXT,
+    deleted_at DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(user_id, name),

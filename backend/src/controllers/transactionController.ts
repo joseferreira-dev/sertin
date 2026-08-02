@@ -2,8 +2,25 @@ import { Response } from 'express';
 import { Transaction } from '../models/Transaction';
 import { AuthRequest } from '../middlewares/auth';
 
+// Definir tipos para evitar repetição
+type TransactionStatus = 'pending' | 'confirmed' | 'cancelled';
+type TransactionType = 'income' | 'expense' | 'transfer';
+
+const validateStatus = (status: string): TransactionStatus => {
+  if (status === 'pending' || status === 'confirmed' || status === 'cancelled') {
+    return status;
+  }
+  return 'confirmed'; // valor padrão
+};
+
+const validateType = (type: string): TransactionType => {
+  if (type === 'income' || type === 'expense' || type === 'transfer') {
+    return type;
+  }
+  throw new Error('Tipo de transação inválido');
+};
+
 export const transactionController = {
-  // Listar transações do usuário com filtros opcionais
   async getAll(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
@@ -16,16 +33,13 @@ export const transactionController = {
       if (categoryId) filters.categoryId = Number(categoryId);
       if (type) filters.type = String(type);
 
-      let transactions = Transaction.findByUser(userId, filters);
-
-      // Limitar número de resultados, se especificado
+      let transactions = Transaction.findWithTags(userId, filters);
       if (limit) {
         const limitNum = Number(limit);
         if (!isNaN(limitNum) && limitNum > 0) {
           transactions = transactions.slice(0, limitNum);
         }
       }
-
       res.json(transactions);
     } catch (error: any) {
       console.error('Erro ao listar transações:', error);
@@ -33,7 +47,6 @@ export const transactionController = {
     }
   },
 
-  // Obter uma transação específica
   async getOne(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
@@ -45,14 +58,15 @@ export const transactionController = {
       if (!transaction) {
         return res.status(404).json({ error: 'Transação não encontrada' });
       }
-      res.json(transaction);
+      // Buscar tags associadas
+      const tags = Transaction.getTags(id);
+      res.json({ ...transaction, tags });
     } catch (error: any) {
       console.error('Erro ao buscar transação:', error);
       res.status(500).json({ error: 'Erro ao buscar transação' });
     }
   },
 
-  // Criar nova transação
   async create(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
@@ -70,6 +84,7 @@ export const transactionController = {
         recurring_id,
         meta_id,
         attachment_path,
+        tagIds,
       } = req.body;
 
       if (!account_id || !type || !amount || !description || !date) {
@@ -78,16 +93,19 @@ export const transactionController = {
           .json({ error: 'Campos obrigatórios: account_id, type, amount, description, date' });
       }
 
+      const validatedType = validateType(type);
+      const validatedStatus = validateStatus(status);
+
       const id = Transaction.create({
         user_id: userId,
         account_id,
         category_id: category_id || null,
         dest_account_id: dest_account_id || null,
-        type,
+        type: validatedType,
         amount,
         description,
         date,
-        status: status || 'confirmed',
+        status: validatedStatus,
         installment_total: installment_total || 1,
         installment_current: installment_current || 1,
         recurring_id: recurring_id || null,
@@ -95,18 +113,23 @@ export const transactionController = {
         attachment_path: attachment_path || null,
       });
 
+      // Associar tags
+      if (tagIds && Array.isArray(tagIds)) {
+        Transaction.setTags(id, tagIds);
+      }
+
       // Atualizar saldo da conta
       Transaction.updateAccountBalance(account_id, userId);
 
       const newTransaction = Transaction.findById(id, userId);
-      res.status(201).json(newTransaction);
+      const tags = Transaction.getTags(id);
+      res.status(201).json({ ...newTransaction, tags });
     } catch (error: any) {
       console.error('Erro ao criar transação:', error);
       res.status(500).json({ error: 'Erro ao criar transação' });
     }
   },
 
-  // Atualizar transação
   async update(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
@@ -134,26 +157,33 @@ export const transactionController = {
         recurring_id,
         meta_id,
         attachment_path,
+        tagIds,
       } = req.body;
 
-      // Se a conta de origem for alterada, atualizar saldo da conta antiga e da nova
       const oldAccountId = existing.account_id;
 
-      Transaction.update(id, userId, {
-        account_id,
-        category_id,
-        dest_account_id,
-        type,
-        amount,
-        description,
-        date,
-        status,
-        installment_total,
-        installment_current,
-        recurring_id,
-        meta_id,
-        attachment_path,
-      });
+      // Validar e montar objeto de atualização
+      const updateData: any = {};
+      if (account_id !== undefined) updateData.account_id = account_id;
+      if (category_id !== undefined) updateData.category_id = category_id || null;
+      if (dest_account_id !== undefined) updateData.dest_account_id = dest_account_id || null;
+      if (type !== undefined) updateData.type = validateType(type);
+      if (amount !== undefined) updateData.amount = amount;
+      if (description !== undefined) updateData.description = description;
+      if (date !== undefined) updateData.date = date;
+      if (status !== undefined) updateData.status = validateStatus(status);
+      if (installment_total !== undefined) updateData.installment_total = installment_total;
+      if (installment_current !== undefined) updateData.installment_current = installment_current;
+      if (recurring_id !== undefined) updateData.recurring_id = recurring_id || null;
+      if (meta_id !== undefined) updateData.meta_id = meta_id || null;
+      if (attachment_path !== undefined) updateData.attachment_path = attachment_path || null;
+
+      Transaction.update(id, userId, updateData);
+
+      // Atualizar tags
+      if (tagIds && Array.isArray(tagIds)) {
+        Transaction.setTags(id, tagIds);
+      }
 
       // Atualizar saldos
       if (oldAccountId !== account_id) {
@@ -164,14 +194,14 @@ export const transactionController = {
       }
 
       const updated = Transaction.findById(id, userId);
-      res.json(updated);
+      const tags = Transaction.getTags(id);
+      res.json({ ...updated, tags });
     } catch (error: any) {
       console.error('Erro ao atualizar transação:', error);
       res.status(500).json({ error: 'Erro ao atualizar transação' });
     }
   },
 
-  // Excluir transação
   async remove(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
@@ -186,9 +216,11 @@ export const transactionController = {
       }
 
       const accountId = existing.account_id;
-      Transaction.delete(id, userId);
 
-      // Atualizar saldo da conta
+      // Remover associações com tags
+      Transaction.setTags(id, []);
+
+      Transaction.delete(id, userId);
       Transaction.updateAccountBalance(accountId, userId);
 
       res.json({ message: 'Transação excluída com sucesso' });
