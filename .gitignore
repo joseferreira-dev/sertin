@@ -88,7 +88,7 @@ frontend/build/
 frontend/.vite/
 
 # Arquivos gerados pelo Figma Make (se não precisar versionar)
-frontend/.figma/
+# frontend/.figma/
 
 # ==============================
 # OUTROS (opcionais, mas úteis)

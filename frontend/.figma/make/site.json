@@ -1,0 +1,10 @@
+{
+  "description": "Streamlines system management by providing users with an intuitive platform to efficiently handle tasks and optimize workflows.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
