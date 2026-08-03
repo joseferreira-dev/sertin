@@ -10,5 +10,6 @@ router.post('/', installmentController.create);
 router.put('/:id', installmentController.update);
 router.delete('/:id', installmentController.remove);
 router.patch('/:id/pay/:number', installmentController.payInstallment);
+router.patch('/:id/unpay/:number', installmentController.unpayInstallment);
 
 export default router;

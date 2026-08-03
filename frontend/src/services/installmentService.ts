@@ -3,7 +3,8 @@ import { api } from './api';
 export interface Installment {
   id: number;
   user_id: number;
-  account_id: number;
+  account_id?: number | null;
+  credit_card_id?: number | null;
   category_id?: number | null;
   description: string;
   total_amount: number;
@@ -46,6 +47,18 @@ export const installmentService = {
   ): Promise<{ message: string }> {
     return api.patch<{ message: string }>(
       `/installments/${installmentId}/pay/${installmentNumber}`,
+      undefined,
+      token
+    );
+  },
+
+  async unpayInstallment(
+    installmentId: number,
+    installmentNumber: number,
+    token: string
+  ): Promise<{ message: string }> {
+    return api.patch<{ message: string }>(
+      `/installments/${installmentId}/unpay/${installmentNumber}`,
       undefined,
       token
     );

@@ -3,7 +3,8 @@ import db from '../config/database';
 export interface ITransaction {
   id?: number;
   user_id: number;
-  account_id: number;
+  account_id?: number | null;
+  credit_card_id?: number | null;
   category_id?: number | null;
   dest_account_id?: number | null;
   type: 'income' | 'expense' | 'transfer';
@@ -26,15 +27,16 @@ export class Transaction {
   static create(data: Omit<ITransaction, 'id' | 'created_at' | 'updated_at'>): number {
     const stmt = db.prepare(`
       INSERT INTO transactions (
-        user_id, account_id, category_id, dest_account_id, type, amount,
+        user_id, account_id, credit_card_id, category_id, dest_account_id, type, amount,
         description, date, status, installment_total, installment_current,
         recurring_id, meta_id, attachment_path, installment_id, installment_number
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       data.user_id,
-      data.account_id,
+      data.account_id || null,
+      data.credit_card_id || null,
       data.category_id || null,
       data.dest_account_id || null,
       data.type,

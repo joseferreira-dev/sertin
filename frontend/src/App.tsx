@@ -7,6 +7,7 @@ import Dashboard from './components/Dashboard';
 import Transactions from './components/Transactions';
 import Installments from './components/Installments';
 import Accounts from './components/Accounts';
+import CreditCards from './components/CreditCards';
 import Categories from './components/Categories';
 import Tags from './components/Tags';
 import Budgets from './components/Budgets';
@@ -52,6 +53,7 @@ export default function App() {
       {page === 'transactions' && <Transactions />}
       {page === 'installments' && <Installments />}
       {page === 'accounts' && <Accounts />}
+      {page === 'credit-cards' && <CreditCards />}
       {page === 'categories' && <Categories />}
       {page === 'tags' && <Tags />}
       {page === 'budgets' && <Budgets />}

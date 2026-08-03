@@ -4,14 +4,11 @@ export interface IAccount {
   id?: number;
   user_id: number;
   name: string;
-  type: 'checking' | 'savings' | 'cash' | 'credit' | 'digital';
+  type: 'checking' | 'savings' | 'cash' | 'digital';
   balance: number;
   color?: string;
   institution?: string;
   icon?: string;
-  limit_amount?: number;
-  closing_day?: number;
-  due_day?: number;
   status: 'active' | 'inactive';
   created_at?: string;
   updated_at?: string;
@@ -20,8 +17,8 @@ export interface IAccount {
 export class Account {
   static create(data: Omit<IAccount, 'id' | 'created_at' | 'updated_at'>): number {
     const stmt = db.prepare(`
-      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, limit_amount, closing_day, due_day, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       data.user_id,
@@ -31,9 +28,6 @@ export class Account {
       data.color || '#10b981',
       data.institution || null,
       data.icon || 'Wallet',
-      data.limit_amount || null,
-      data.closing_day || null,
-      data.due_day || null,
       data.status || 'active'
     );
     return info.lastInsertRowid as number;
@@ -89,8 +83,8 @@ export class Account {
   static getNetWorth(userId: number): { assets: number; liabilities: number; netWorth: number } {
     const stmt = db.prepare(`
       SELECT
-        SUM(CASE WHEN type != 'credit' AND balance > 0 THEN balance ELSE 0 END) as assets,
-        SUM(CASE WHEN type = 'credit' THEN ABS(balance) ELSE 0 END) as liabilities
+        SUM(CASE WHEN balance > 0 THEN balance ELSE 0 END) as assets,
+        SUM(CASE WHEN balance < 0 THEN ABS(balance) ELSE 0 END) as liabilities
       FROM accounts WHERE user_id = ? AND status = 'active'
     `);
     const row = stmt.get(userId) as { assets: number; liabilities: number };

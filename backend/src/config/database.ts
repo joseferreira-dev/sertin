@@ -32,21 +32,35 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('checking','savings','cash','credit','digital')),
+    type TEXT NOT NULL CHECK(type IN ('checking','savings','cash','digital')),
     balance REAL DEFAULT 0,
     color TEXT DEFAULT '#10b981',
     institution TEXT,
     icon TEXT DEFAULT 'Wallet',
-    limit_amount REAL,
-    closing_day INTEGER,
-    due_day INTEGER,
     status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  -- Categorias (hierárquicas)
+  -- Cartões de crédito
+  CREATE TABLE IF NOT EXISTS credit_cards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    institution TEXT,
+    limit_amount REAL NOT NULL,
+    closing_day INTEGER NOT NULL,
+    due_day INTEGER NOT NULL,
+    color TEXT DEFAULT '#10b981',
+    icon TEXT DEFAULT 'CreditCard',
+    status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  -- Categorias
   CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -61,11 +75,12 @@ db.exec(`
     FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE CASCADE
   );
 
-  -- Transações (com campos de parcelamento)
+  -- Transações
   CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    account_id INTEGER NOT NULL,
+    account_id INTEGER,
+    credit_card_id INTEGER,
     category_id INTEGER,
     dest_account_id INTEGER,
     type TEXT NOT NULL CHECK(type IN ('income','expense','transfer')),
@@ -84,6 +99,7 @@ db.exec(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (credit_card_id) REFERENCES credit_cards(id) ON DELETE SET NULL,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
     FOREIGN KEY (dest_account_id) REFERENCES accounts(id) ON DELETE SET NULL
   );
@@ -92,7 +108,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS installments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    account_id INTEGER NOT NULL,
+    account_id INTEGER,
+    credit_card_id INTEGER,
     category_id INTEGER,
     description TEXT NOT NULL,
     total_amount REAL NOT NULL,
@@ -103,6 +120,7 @@ db.exec(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (credit_card_id) REFERENCES credit_cards(id) ON DELETE SET NULL,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
   );
 
@@ -120,7 +138,7 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  -- Relação transação-tag (muitos-para-muitos)
+  -- Relação transação-tag
   CREATE TABLE IF NOT EXISTS transaction_tags (
     transaction_id INTEGER NOT NULL,
     tag_id INTEGER NOT NULL,
@@ -129,7 +147,7 @@ db.exec(`
     FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
   );
 
-  -- Orçamentos mensais
+  -- Orçamentos
   CREATE TABLE IF NOT EXISTS budgets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -143,7 +161,7 @@ db.exec(`
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
   );
 
-  -- Metas financeiras
+  -- Metas
   CREATE TABLE IF NOT EXISTS goals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -163,7 +181,7 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  -- Aportes em metas
+  -- Aportes
   CREATE TABLE IF NOT EXISTS goal_contributions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     goal_id INTEGER NOT NULL,
@@ -174,7 +192,7 @@ db.exec(`
     FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE
   );
 
-  -- Logs de auditoria
+  -- Logs
   CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
@@ -186,7 +204,7 @@ db.exec(`
   );
 `);
 
-// Índices para performance
+// Índices
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);
@@ -194,6 +212,7 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_budgets_user_month ON budgets(user_id, month);
   CREATE INDEX IF NOT EXISTS idx_goals_user_status ON goals(user_id, status);
   CREATE INDEX IF NOT EXISTS idx_installments_user_status ON installments(user_id, status);
+  CREATE INDEX IF NOT EXISTS idx_credit_cards_user_status ON credit_cards(user_id, status);
 `);
 
 logger.info(`Banco de dados inicializado em ${dbPath}`);

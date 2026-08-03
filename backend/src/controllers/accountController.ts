@@ -4,7 +4,6 @@ import { AuthRequest } from '../middlewares/auth';
 import { Transaction } from '../models/Transaction';
 
 export const accountController = {
-  // Listar contas
   async getAll(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
@@ -20,7 +19,6 @@ export const accountController = {
   async getOne(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
-      // Garantir que id seja string
       const id = parseInt(String(req.params.id));
       if (isNaN(id)) {
         return res.status(400).json({ error: 'ID inválido' });
@@ -39,18 +37,7 @@ export const accountController = {
   async create(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
-      const {
-        name,
-        type,
-        balance,
-        color,
-        institution,
-        icon,
-        limit_amount,
-        closing_day,
-        due_day,
-        status,
-      } = req.body;
+      const { name, type, balance, color, institution, icon, status } = req.body;
 
       if (!name || !type) {
         return res.status(400).json({ error: 'Nome e tipo são obrigatórios' });
@@ -64,9 +51,6 @@ export const accountController = {
         color: color || '#10b981',
         institution: institution || '',
         icon: icon || 'Wallet',
-        limit_amount: limit_amount || null,
-        closing_day: closing_day || null,
-        due_day: due_day || null,
         status: status || 'active',
       });
 
@@ -106,7 +90,7 @@ export const accountController = {
       if (isNaN(id)) {
         return res.status(400).json({ error: 'ID inválido' });
       }
-      const { name, color, institution, limit_amount, closing_day, due_day, status } = req.body;
+      const { name, color, institution, status } = req.body;
 
       const existing = Account.findById(id, userId);
       if (!existing) {
@@ -117,9 +101,6 @@ export const accountController = {
         name,
         color,
         institution,
-        limit_amount,
-        closing_day,
-        due_day,
         status,
       });
 

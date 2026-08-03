@@ -36,6 +36,7 @@ sertin/
             ├── authController.ts
             ├── budgetController.ts
             ├── categoryController.ts
+            ├── creditCardController.ts
             ├── goalController.ts
             ├── installmentController.ts
             ├── reportController.ts
@@ -46,6 +47,7 @@ sertin/
             ├── Account.ts
             ├── Budget.ts
             ├── Category.ts
+            ├── CreditCard.ts
             ├── Goal.ts
             ├── Installment.ts
             ├── Log.ts
@@ -57,6 +59,7 @@ sertin/
             ├── auth.ts
             ├── budgets.ts
             ├── categories.ts
+            ├── creditCards.ts
             ├── goals.ts
             ├── index.ts
             ├── installments.ts
@@ -87,6 +90,7 @@ sertin/
             ├── Accounts.tsx
             ├── Budgets.tsx
             ├── Categories.tsx
+            ├── CreditCards.tsx
             ├── Dashboard.tsx
             ├── Goals.tsx
             ├── ImportExport.tsx
@@ -104,6 +108,7 @@ sertin/
             ├── accountService.ts
             ├── api.ts
             ├── categoryService.ts
+            ├── creditCardService.ts
             ├── goalService.ts
             ├── installmentService.ts
             ├── tagService.ts
@@ -728,7 +733,24 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  -- Categorias (hierárquicas)
+  -- Cartões de crédito (independentes)
+  CREATE TABLE IF NOT EXISTS credit_cards (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    institution TEXT,
+    limit_amount REAL NOT NULL,
+    closing_day INTEGER NOT NULL,
+    due_day INTEGER NOT NULL,
+    color TEXT DEFAULT '#10b981',
+    icon TEXT DEFAULT 'CreditCard',
+    status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  -- Categorias
   CREATE TABLE IF NOT EXISTS categories (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -743,11 +765,12 @@ db.exec(`
     FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE CASCADE
   );
 
-  -- Transações (com campos de parcelamento)
+  -- Transações
   CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    account_id INTEGER NOT NULL,
+    account_id INTEGER,
+    credit_card_id INTEGER,
     category_id INTEGER,
     dest_account_id INTEGER,
     type TEXT NOT NULL CHECK(type IN ('income','expense','transfer')),
@@ -766,15 +789,17 @@ db.exec(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (credit_card_id) REFERENCES credit_cards(id) ON DELETE SET NULL,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
     FOREIGN KEY (dest_account_id) REFERENCES accounts(id) ON DELETE SET NULL
   );
 
-  -- Parcelamentos
+  -- Parcelamentos (agora com credit_card_id)
   CREATE TABLE IF NOT EXISTS installments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
-    account_id INTEGER NOT NULL,
+    account_id INTEGER,
+    credit_card_id INTEGER,
     category_id INTEGER,
     description TEXT NOT NULL,
     total_amount REAL NOT NULL,
@@ -785,6 +810,7 @@ db.exec(`
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (credit_card_id) REFERENCES credit_cards(id) ON DELETE SET NULL,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
   );
 
@@ -802,7 +828,7 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  -- Relação transação-tag (muitos-para-muitos)
+  -- Relação transação-tag
   CREATE TABLE IF NOT EXISTS transaction_tags (
     transaction_id INTEGER NOT NULL,
     tag_id INTEGER NOT NULL,
@@ -811,7 +837,7 @@ db.exec(`
     FOREIGN KEY (tag_id) REFERENCES tags(id) ON DELETE CASCADE
   );
 
-  -- Orçamentos mensais
+  -- Orçamentos
   CREATE TABLE IF NOT EXISTS budgets (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -825,7 +851,7 @@ db.exec(`
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
   );
 
-  -- Metas financeiras
+  -- Metas
   CREATE TABLE IF NOT EXISTS goals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -845,7 +871,7 @@ db.exec(`
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  -- Aportes em metas
+  -- Aportes
   CREATE TABLE IF NOT EXISTS goal_contributions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     goal_id INTEGER NOT NULL,
@@ -856,7 +882,7 @@ db.exec(`
     FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE
   );
 
-  -- Logs de auditoria
+  -- Logs
   CREATE TABLE IF NOT EXISTS logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER,
@@ -868,7 +894,7 @@ db.exec(`
   );
 `);
 
-// Índices para performance
+// Índices
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);
@@ -876,7 +902,18 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_budgets_user_month ON budgets(user_id, month);
   CREATE INDEX IF NOT EXISTS idx_goals_user_status ON goals(user_id, status);
   CREATE INDEX IF NOT EXISTS idx_installments_user_status ON installments(user_id, status);
+  CREATE INDEX IF NOT EXISTS idx_credit_cards_user_status ON credit_cards(user_id, status);
 `);
+
+try {
+  db.exec(
+    `ALTER TABLE installments ADD COLUMN credit_card_id INTEGER REFERENCES credit_cards(id) ON DELETE SET NULL;`
+  );
+} catch (e: any) {
+  if (!e.message.includes('duplicate column name')) {
+    console.warn('Erro ao adicionar coluna credit_card_id em installments:', e.message);
+  }
+}
 
 logger.info(`Banco de dados inicializado em ${dbPath}`);
 export default db;
@@ -1338,6 +1375,143 @@ export const categoryController = {
 
 
 --------------------------------------------------------------------------------
+ARQUIVO: backend\src\controllers\creditCardController.ts
+--------------------------------------------------------------------------------
+import { Response } from 'express';
+import { AuthRequest } from '../middlewares/auth';
+import { CreditCard } from '../models/CreditCard';
+
+export const creditCardController = {
+  async getAll(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user!.id;
+      const onlyActive = req.query.onlyActive === 'true';
+      const cards = CreditCard.findByUser(userId, onlyActive);
+      // Adiciona saldo atual a cada cartão
+      const cardsWithBalance = cards.map((card) => ({
+        ...card,
+        current_balance: CreditCard.getCurrentBalance(card.id!, userId),
+      }));
+      res.json(cardsWithBalance);
+    } catch (error: any) {
+      console.error('Erro ao listar cartões:', error);
+      res.status(500).json({ error: 'Erro ao buscar cartões' });
+    }
+  },
+
+  async getOne(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user!.id;
+      const id = parseInt(String(req.params.id));
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+      const card = CreditCard.findById(id, userId);
+      if (!card) {
+        return res.status(404).json({ error: 'Cartão não encontrado' });
+      }
+      const balance = CreditCard.getCurrentBalance(id, userId);
+      res.json({ ...card, current_balance: balance });
+    } catch (error: any) {
+      console.error('Erro ao buscar cartão:', error);
+      res.status(500).json({ error: 'Erro ao buscar cartão' });
+    }
+  },
+
+  async create(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user!.id;
+      const { name, institution, limit_amount, closing_day, due_day, color, icon, status } =
+        req.body;
+
+      if (!name || !limit_amount || !closing_day || !due_day) {
+        return res.status(400).json({
+          error: 'Campos obrigatórios: name, limit_amount, closing_day, due_day',
+        });
+      }
+
+      const id = CreditCard.create({
+        user_id: userId,
+        name,
+        institution: institution || '',
+        limit_amount,
+        closing_day,
+        due_day,
+        color: color || '#10b981',
+        icon: icon || 'CreditCard',
+        status: status || 'active',
+      });
+
+      const newCard = CreditCard.findById(id, userId);
+      const balance = CreditCard.getCurrentBalance(id, userId);
+      res.status(201).json({ ...newCard, current_balance: balance });
+    } catch (error: any) {
+      console.error('Erro ao criar cartão:', error);
+      res.status(500).json({ error: 'Erro ao criar cartão' });
+    }
+  },
+
+  async update(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user!.id;
+      const id = parseInt(String(req.params.id));
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const existing = CreditCard.findById(id, userId);
+      if (!existing) {
+        return res.status(404).json({ error: 'Cartão não encontrado' });
+      }
+
+      const { name, institution, limit_amount, closing_day, due_day, color, icon, status } =
+        req.body;
+
+      const updateData: any = {};
+      if (name !== undefined) updateData.name = name;
+      if (institution !== undefined) updateData.institution = institution;
+      if (limit_amount !== undefined) updateData.limit_amount = limit_amount;
+      if (closing_day !== undefined) updateData.closing_day = closing_day;
+      if (due_day !== undefined) updateData.due_day = due_day;
+      if (color !== undefined) updateData.color = color;
+      if (icon !== undefined) updateData.icon = icon;
+      if (status !== undefined) updateData.status = status;
+
+      CreditCard.update(id, userId, updateData);
+
+      const updated = CreditCard.findById(id, userId);
+      const balance = CreditCard.getCurrentBalance(id, userId);
+      res.json({ ...updated, current_balance: balance });
+    } catch (error: any) {
+      console.error('Erro ao atualizar cartão:', error);
+      res.status(500).json({ error: 'Erro ao atualizar cartão' });
+    }
+  },
+
+  async remove(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user!.id;
+      const id = parseInt(String(req.params.id));
+      if (isNaN(id)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const existing = CreditCard.findById(id, userId);
+      if (!existing) {
+        return res.status(404).json({ error: 'Cartão não encontrado' });
+      }
+
+      CreditCard.delete(id, userId);
+      res.json({ message: 'Cartão excluído com sucesso' });
+    } catch (error: any) {
+      console.error('Erro ao excluir cartão:', error);
+      res.status(400).json({ error: error.message || 'Erro ao excluir cartão' });
+    }
+  },
+};
+
+
+--------------------------------------------------------------------------------
 ARQUIVO: backend\src\controllers\goalController.ts
 --------------------------------------------------------------------------------
 import { Request, Response } from 'express';
@@ -1361,12 +1535,13 @@ export const installmentController = {
   async getAll(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
-      const { status, startDate, endDate, accountId } = req.query;
+      const { status, startDate, endDate, accountId, creditCardId } = req.query;
       const filters: any = {};
       if (status) filters.status = String(status);
       if (startDate) filters.startDate = String(startDate);
       if (endDate) filters.endDate = String(endDate);
       if (accountId) filters.accountId = Number(accountId);
+      if (creditCardId) filters.creditCardId = Number(creditCardId);
 
       const installments = Installment.findByUser(userId, filters);
       const result = installments.map((inst) => {
@@ -1416,19 +1591,31 @@ export const installmentController = {
   async create(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
-      const { account_id, category_id, description, total_amount, installment_count, start_date } =
-        req.body;
+      const {
+        account_id,
+        credit_card_id,
+        category_id,
+        description,
+        total_amount,
+        installment_count,
+        start_date,
+      } = req.body;
 
-      if (!account_id || !description || !total_amount || !installment_count || !start_date) {
+      if (!description || !total_amount || !installment_count || !start_date) {
         return res.status(400).json({
-          error:
-            'Campos obrigatórios: account_id, description, total_amount, installment_count, start_date',
+          error: 'Campos obrigatórios: description, total_amount, installment_count, start_date',
+        });
+      }
+      if (!account_id && !credit_card_id) {
+        return res.status(400).json({
+          error: 'É necessário fornecer account_id ou credit_card_id',
         });
       }
 
       const id = Installment.create({
         user_id: userId,
-        account_id,
+        account_id: account_id || null,
+        credit_card_id: credit_card_id || null,
         category_id: category_id || null,
         description,
         total_amount,
@@ -1462,6 +1649,7 @@ export const installmentController = {
 
       const {
         account_id,
+        credit_card_id,
         category_id,
         description,
         total_amount,
@@ -1471,7 +1659,8 @@ export const installmentController = {
       } = req.body;
 
       const updateData: any = {};
-      if (account_id !== undefined) updateData.account_id = account_id;
+      if (account_id !== undefined) updateData.account_id = account_id || null;
+      if (credit_card_id !== undefined) updateData.credit_card_id = credit_card_id || null;
       if (category_id !== undefined) updateData.category_id = category_id || null;
       if (description !== undefined) updateData.description = description;
       if (total_amount !== undefined) updateData.total_amount = total_amount;
@@ -1542,6 +1731,23 @@ export const installmentController = {
     } catch (error: any) {
       console.error('Erro ao pagar parcela:', error);
       res.status(500).json({ error: error.message || 'Erro ao pagar parcela' });
+    }
+  },
+
+  async unpayInstallment(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user!.id;
+      const installmentId = parseInt(String(req.params.id));
+      const installmentNumber = parseInt(String(req.params.number));
+      if (isNaN(installmentId) || isNaN(installmentNumber)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      Installment.unpayInstallment(installmentId, installmentNumber, userId);
+      res.json({ message: 'Pagamento desfeito com sucesso' });
+    } catch (error: any) {
+      console.error('Erro ao desfazer pagamento:', error);
+      res.status(500).json({ error: error.message || 'Erro ao desfazer pagamento' });
     }
   },
 };
@@ -1722,6 +1928,7 @@ export const transactionController = {
       const userId = req.user!.id;
       const {
         account_id,
+        credit_card_id,
         category_id,
         dest_account_id,
         type,
@@ -1737,18 +1944,25 @@ export const transactionController = {
         tagIds,
       } = req.body;
 
-      if (!account_id || !type || !amount || !description || !date) {
+      if (!type || amount === undefined || !description || !date) {
         return res
           .status(400)
-          .json({ error: 'Campos obrigatórios: account_id, type, amount, description, date' });
+          .json({ error: 'Campos obrigatórios: type, amount, description, date' });
       }
 
       const validatedType = validateType(type);
-      const validatedStatus = validateStatus(status);
+      const validatedStatus = validateStatus(status || 'pending');
+
+      if (validatedStatus !== 'pending' && !account_id && !credit_card_id) {
+        return res.status(400).json({
+          error: 'Transações confirmadas ou canceladas devem ter uma conta ou cartão vinculado.',
+        });
+      }
 
       const id = Transaction.create({
         user_id: userId,
-        account_id,
+        account_id: account_id || null,
+        credit_card_id: credit_card_id || null,
         category_id: category_id || null,
         dest_account_id: dest_account_id || null,
         type: validatedType,
@@ -1767,9 +1981,11 @@ export const transactionController = {
         Transaction.setTags(id, tagIds);
       }
 
-      Transaction.updateAccountBalance(account_id, userId);
-      if (validatedType === 'transfer' && dest_account_id) {
-        Transaction.updateAccountBalance(dest_account_id, userId);
+      if (account_id && validatedStatus === 'confirmed') {
+        Transaction.updateAccountBalance(account_id, userId);
+        if (validatedType === 'transfer' && dest_account_id) {
+          Transaction.updateAccountBalance(dest_account_id, userId);
+        }
       }
 
       const newTransaction = Transaction.findById(id, userId);
@@ -1794,8 +2010,21 @@ export const transactionController = {
         return res.status(404).json({ error: 'Transação não encontrada' });
       }
 
+      // Se for parcela, permitir apenas alterar status e data
+      if (existing.installment_id) {
+        const allowedFields = ['status', 'date'];
+        const requestedFields = Object.keys(req.body);
+        const hasOnlyAllowed = requestedFields.every((f) => allowedFields.includes(f));
+        if (!hasOnlyAllowed) {
+          return res.status(403).json({
+            error: 'Para parcelas, só é permitido alterar status (para desfazer pagamento) e data.',
+          });
+        }
+      }
+
       const {
         account_id,
+        credit_card_id,
         category_id,
         dest_account_id,
         type,
@@ -1814,16 +2043,29 @@ export const transactionController = {
       const oldAccountId = existing.account_id;
       const oldDestAccountId = existing.dest_account_id;
       const oldType = existing.type;
+      const newStatus = status ? validateStatus(status) : existing.status;
+
+      if (newStatus !== 'pending') {
+        const newAccountId = account_id !== undefined ? account_id : existing.account_id;
+        const newCreditCardId =
+          credit_card_id !== undefined ? credit_card_id : existing.credit_card_id;
+        if (!newAccountId && !newCreditCardId) {
+          return res.status(400).json({
+            error: 'Transações confirmadas ou canceladas devem ter uma conta ou cartão vinculado.',
+          });
+        }
+      }
 
       const updateData: any = {};
-      if (account_id !== undefined) updateData.account_id = account_id;
+      if (account_id !== undefined) updateData.account_id = account_id || null;
+      if (credit_card_id !== undefined) updateData.credit_card_id = credit_card_id || null;
       if (category_id !== undefined) updateData.category_id = category_id || null;
       if (dest_account_id !== undefined) updateData.dest_account_id = dest_account_id || null;
       if (type !== undefined) updateData.type = validateType(type);
       if (amount !== undefined) updateData.amount = amount;
       if (description !== undefined) updateData.description = description;
       if (date !== undefined) updateData.date = date;
-      if (status !== undefined) updateData.status = validateStatus(status);
+      if (status !== undefined) updateData.status = newStatus;
       if (installment_total !== undefined) updateData.installment_total = installment_total;
       if (installment_current !== undefined) updateData.installment_current = installment_current;
       if (recurring_id !== undefined) updateData.recurring_id = recurring_id || null;
@@ -1836,17 +2078,17 @@ export const transactionController = {
         Transaction.setTags(id, tagIds);
       }
 
-      // Recalcular saldos afetados
-      const newAccountId = updateData.account_id ?? oldAccountId;
-      const newDestAccountId = updateData.dest_account_id ?? oldDestAccountId;
-      const newType = updateData.type ?? oldType;
+      const finalAccountId = updateData.account_id ?? oldAccountId;
+      const finalDestAccountId = updateData.dest_account_id ?? oldDestAccountId;
+      const finalType = updateData.type ?? oldType;
+      const finalStatus = updateData.status ?? existing.status;
 
-      // Contas a atualizar (evitar duplicatas)
       const accountsToUpdate = new Set<number>();
       if (oldAccountId) accountsToUpdate.add(oldAccountId);
-      if (newAccountId) accountsToUpdate.add(newAccountId);
+      if (finalAccountId && finalStatus === 'confirmed') accountsToUpdate.add(finalAccountId);
       if (oldType === 'transfer' && oldDestAccountId) accountsToUpdate.add(oldDestAccountId);
-      if (newType === 'transfer' && newDestAccountId) accountsToUpdate.add(newDestAccountId);
+      if (finalType === 'transfer' && finalDestAccountId && finalStatus === 'confirmed')
+        accountsToUpdate.add(finalDestAccountId);
 
       for (const accId of accountsToUpdate) {
         Transaction.updateAccountBalance(accId, userId);
@@ -1874,6 +2116,13 @@ export const transactionController = {
         return res.status(404).json({ error: 'Transação não encontrada' });
       }
 
+      if (existing.installment_id) {
+        return res.status(403).json({
+          error:
+            'Não é possível excluir uma parcela individualmente. Gerencie o parcelamento completo.',
+        });
+      }
+
       const accountId = existing.account_id;
       const destAccountId = existing.dest_account_id;
       const type = existing.type;
@@ -1881,9 +2130,11 @@ export const transactionController = {
       Transaction.setTags(id, []);
       Transaction.delete(id, userId);
 
-      Transaction.updateAccountBalance(accountId, userId);
-      if (type === 'transfer' && destAccountId) {
-        Transaction.updateAccountBalance(destAccountId, userId);
+      if (accountId) {
+        Transaction.updateAccountBalance(accountId, userId);
+        if (type === 'transfer' && destAccountId) {
+          Transaction.updateAccountBalance(destAccountId, userId);
+        }
       }
 
       res.json({ message: 'Transação excluída com sucesso' });
@@ -2126,6 +2377,106 @@ export class Category {
 }
 
 --------------------------------------------------------------------------------
+ARQUIVO: backend\src\models\CreditCard.ts
+--------------------------------------------------------------------------------
+import db from '../config/database';
+
+export interface ICreditCard {
+  id?: number;
+  user_id: number;
+  name: string;
+  institution?: string;
+  limit_amount: number;
+  closing_day: number;
+  due_day: number;
+  color: string;
+  icon: string;
+  status: 'active' | 'inactive';
+  created_at?: string;
+  updated_at?: string;
+}
+
+export class CreditCard {
+  static create(data: Omit<ICreditCard, 'id' | 'created_at' | 'updated_at'>): number {
+    const stmt = db.prepare(`
+      INSERT INTO credit_cards (
+        user_id, name, institution, limit_amount, closing_day, due_day, color, icon, status
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const info = stmt.run(
+      data.user_id,
+      data.name,
+      data.institution || null,
+      data.limit_amount,
+      data.closing_day,
+      data.due_day,
+      data.color || '#10b981',
+      data.icon || 'CreditCard',
+      data.status || 'active'
+    );
+    return info.lastInsertRowid as number;
+  }
+
+  static findById(id: number, userId: number): ICreditCard | undefined {
+    const stmt = db.prepare('SELECT * FROM credit_cards WHERE id = ? AND user_id = ?');
+    return stmt.get(id, userId) as ICreditCard | undefined;
+  }
+
+  static findByUser(userId: number, onlyActive: boolean = false): ICreditCard[] {
+    let sql = 'SELECT * FROM credit_cards WHERE user_id = ?';
+    const params: any[] = [userId];
+    if (onlyActive) {
+      sql += " AND status = 'active'";
+    }
+    sql += ' ORDER BY name';
+    const stmt = db.prepare(sql);
+    return stmt.all(...params) as ICreditCard[];
+  }
+
+  static update(id: number, userId: number, data: Partial<ICreditCard>): void {
+    const fields = Object.keys(data).filter(
+      (k) =>
+        k !== 'id' &&
+        k !== 'user_id' &&
+        k !== 'created_at' &&
+        k !== 'updated_at' &&
+        data[k as keyof ICreditCard] !== undefined
+    );
+    if (fields.length === 0) return;
+    const setClause = fields.map((f) => `${f} = ?`).join(', ');
+    const values = fields.map((f) => data[f as keyof ICreditCard]);
+    const stmt = db.prepare(
+      `UPDATE credit_cards SET ${setClause}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND user_id = ?`
+    );
+    stmt.run(...values, id, userId);
+  }
+
+  static delete(id: number, userId: number): void {
+    const checkStmt = db.prepare(
+      'SELECT COUNT(*) as count FROM transactions WHERE credit_card_id = ? AND user_id = ?'
+    );
+    const { count } = checkStmt.get(id, userId) as { count: number };
+    if (count > 0) {
+      throw new Error('Não é possível excluir o cartão pois existem transações associadas a ele.');
+    }
+    const delStmt = db.prepare('DELETE FROM credit_cards WHERE id = ? AND user_id = ?');
+    delStmt.run(id, userId);
+  }
+
+  static getCurrentBalance(cardId: number, userId: number): number {
+    const stmt = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) as balance
+      FROM transactions
+      WHERE credit_card_id = ? AND user_id = ? AND type = 'expense' AND status IN ('confirmed', 'pending')
+    `);
+    const row = stmt.get(cardId, userId) as { balance: number };
+    return Math.abs(row.balance);
+  }
+}
+
+
+--------------------------------------------------------------------------------
 ARQUIVO: backend\src\models\Goal.ts
 --------------------------------------------------------------------------------
 export default class Goal {}
@@ -2138,12 +2489,13 @@ import db from '../config/database';
 export interface IInstallment {
   id?: number;
   user_id: number;
-  account_id: number;
+  account_id?: number | null;
+  credit_card_id?: number | null;
   category_id?: number | null;
   description: string;
   total_amount: number;
   installment_count: number;
-  start_date: string; // YYYY-MM-DD
+  start_date: string;
   status: 'active' | 'completed' | 'canceled';
   created_at?: string;
   updated_at?: string;
@@ -2152,12 +2504,13 @@ export interface IInstallment {
 export class Installment {
   static create(data: Omit<IInstallment, 'id' | 'created_at' | 'updated_at'>): number {
     const stmt = db.prepare(`
-      INSERT INTO installments (user_id, account_id, category_id, description, total_amount, installment_count, start_date, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO installments (user_id, account_id, credit_card_id, category_id, description, total_amount, installment_count, start_date, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       data.user_id,
-      data.account_id,
+      data.account_id || null,
+      data.credit_card_id || null,
       data.category_id || null,
       data.description,
       data.total_amount,
@@ -2175,7 +2528,13 @@ export class Installment {
 
   static findByUser(
     userId: number,
-    filters?: { status?: string; startDate?: string; endDate?: string; accountId?: number }
+    filters?: {
+      status?: string;
+      startDate?: string;
+      endDate?: string;
+      accountId?: number;
+      creditCardId?: number;
+    }
   ): IInstallment[] {
     let sql = 'SELECT * FROM installments WHERE user_id = ?';
     const params: any[] = [userId];
@@ -2194,6 +2553,10 @@ export class Installment {
     if (filters?.accountId) {
       sql += ' AND account_id = ?';
       params.push(filters.accountId);
+    }
+    if (filters?.creditCardId) {
+      sql += ' AND credit_card_id = ?';
+      params.push(filters.creditCardId);
     }
     sql += ' ORDER BY start_date DESC, id DESC';
     const stmt = db.prepare(sql);
@@ -2219,7 +2582,7 @@ export class Installment {
 
   static delete(id: number, userId: number): void {
     const stmt = db.prepare(
-      'SELECT COUNT(*) as count FROM transactions WHERE installment_id = ? AND user_id = ? AND status = "confirmed"'
+      "SELECT COUNT(*) as count FROM transactions WHERE installment_id = ? AND user_id = ? AND status = 'confirmed'"
     );
     const { count } = stmt.get(id, userId) as { count: number };
     if (count > 0) {
@@ -2229,7 +2592,6 @@ export class Installment {
     delStmt.run(id, userId);
   }
 
-  // Gera as transações para o parcelamento
   static generateTransactions(installmentId: number, userId: number): void {
     const installment = this.findById(installmentId, userId);
     if (!installment) throw new Error('Parcelamento não encontrado');
@@ -2242,15 +2604,14 @@ export class Installment {
 
     const txnStmt = db.prepare(`
       INSERT INTO transactions (
-        user_id, account_id, category_id, type, amount, description, date, status,
+        user_id, account_id, credit_card_id, category_id, type, amount, description, date, status,
         installment_id, installment_number, installment_total, installment_current
-      ) VALUES (?, ?, ?, 'expense', ?, ?, ?, 'pending', ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, 'expense', ?, ?, ?, 'pending', ?, ?, ?, ?)
     `);
 
     const insertTxn = db.transaction(() => {
       for (let i = 0; i < installment.installment_count; i++) {
         let currentDate = new Date(year, month + i, day);
-        // Ajusta para o último dia do mês se o dia não existir
         const targetMonth = (month + i) % 12;
         const targetYear = year + Math.floor((month + i) / 12);
         const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
@@ -2262,7 +2623,8 @@ export class Installment {
           installment.description + ` (${i + 1}/${installment.installment_count})`;
         txnStmt.run(
           userId,
-          installment.account_id,
+          installment.account_id || null,
+          installment.credit_card_id || null,
           installment.category_id || null,
           amountPerInstallment,
           description,
@@ -2277,7 +2639,6 @@ export class Installment {
     insertTxn();
   }
 
-  // Atualiza status do parcelamento baseado nas parcelas pagas
   static updateStatus(installmentId: number, userId: number): void {
     const stmt = db.prepare(`
       SELECT COUNT(*) as total, SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as paid
@@ -2289,7 +2650,6 @@ export class Installment {
     }
   }
 
-  // Marca uma parcela como paga
   static payInstallment(installmentId: number, installmentNumber: number, userId: number): void {
     const txnStmt = db.prepare(`
       UPDATE transactions SET status = 'confirmed', updated_at = CURRENT_TIMESTAMP
@@ -2302,14 +2662,33 @@ export class Installment {
     this.updateStatus(installmentId, userId);
   }
 
-  // Cancela parcelamento (parcelas pendentes viram canceladas)
+  static unpayInstallment(installmentId: number, installmentNumber: number, userId: number): void {
+    const txnStmt = db.prepare(`
+      UPDATE transactions SET status = 'pending', updated_at = CURRENT_TIMESTAMP
+      WHERE installment_id = ? AND installment_number = ? AND user_id = ? AND status = 'confirmed'
+    `);
+    const info = txnStmt.run(installmentId, installmentNumber, userId);
+    if (info.changes === 0) {
+      throw new Error('Parcela não encontrada ou não está paga');
+    }
+    const stmt = db.prepare(`
+      SELECT COUNT(*) as total, SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as paid
+      FROM transactions WHERE installment_id = ? AND user_id = ?
+    `);
+    const row = stmt.get(installmentId, userId) as { total: number; paid: number };
+    if (row.paid === 0) {
+      this.update(installmentId, userId, { status: 'active' });
+    } else {
+      this.update(installmentId, userId, { status: 'active' });
+    }
+  }
+
   static cancelInstallment(installmentId: number, userId: number): void {
     const txnStmt = db.prepare(`
       UPDATE transactions SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
       WHERE installment_id = ? AND user_id = ? AND status = 'pending'
     `);
     txnStmt.run(installmentId, userId);
-    // Se não houver parcelas pagas, muda status para canceled, senão mantém active
     const stmt = db.prepare(`
       SELECT COUNT(*) as total, SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as paid
       FROM transactions WHERE installment_id = ? AND user_id = ?
@@ -2449,7 +2828,8 @@ import db from '../config/database';
 export interface ITransaction {
   id?: number;
   user_id: number;
-  account_id: number;
+  account_id?: number | null;
+  credit_card_id?: number | null;
   category_id?: number | null;
   dest_account_id?: number | null;
   type: 'income' | 'expense' | 'transfer';
@@ -2472,15 +2852,16 @@ export class Transaction {
   static create(data: Omit<ITransaction, 'id' | 'created_at' | 'updated_at'>): number {
     const stmt = db.prepare(`
       INSERT INTO transactions (
-        user_id, account_id, category_id, dest_account_id, type, amount,
+        user_id, account_id, credit_card_id, category_id, dest_account_id, type, amount,
         description, date, status, installment_total, installment_current,
         recurring_id, meta_id, attachment_path, installment_id, installment_number
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       data.user_id,
-      data.account_id,
+      data.account_id || null,
+      data.credit_card_id || null,
       data.category_id || null,
       data.dest_account_id || null,
       data.type,
@@ -2745,6 +3126,24 @@ router.delete('/:id', categoryController.remove);
 export default router;
 
 --------------------------------------------------------------------------------
+ARQUIVO: backend\src\routes\creditCards.ts
+--------------------------------------------------------------------------------
+import { Router } from 'express';
+import { creditCardController } from '../controllers/creditCardController';
+import { authMiddleware } from '../middlewares/auth';
+
+const router = Router();
+router.use(authMiddleware);
+router.get('/', creditCardController.getAll);
+router.get('/:id', creditCardController.getOne);
+router.post('/', creditCardController.create);
+router.put('/:id', creditCardController.update);
+router.delete('/:id', creditCardController.remove);
+
+export default router;
+
+
+--------------------------------------------------------------------------------
 ARQUIVO: backend\src\routes\goals.ts
 --------------------------------------------------------------------------------
 import { Router } from 'express';
@@ -2766,6 +3165,7 @@ ARQUIVO: backend\src\routes\index.ts
 import { Router } from 'express';
 import authRoutes from './auth';
 import accountRoutes from './accounts';
+import creditCardRoutes from './creditCards';
 import categoryRoutes from './categories';
 import transactionRoutes from './transactions';
 import installmentRoutes from './installments';
@@ -2778,6 +3178,7 @@ const router = Router();
 
 router.use('/auth', authRoutes);
 router.use('/accounts', accountRoutes);
+router.use('/credit-cards', creditCardRoutes);
 router.use('/categories', categoryRoutes);
 router.use('/transactions', transactionRoutes);
 router.use('/installments', installmentRoutes);
@@ -2804,6 +3205,7 @@ router.post('/', installmentController.create);
 router.put('/:id', installmentController.update);
 router.delete('/:id', installmentController.remove);
 router.patch('/:id/pay/:number', installmentController.payInstallment);
+router.patch('/:id/unpay/:number', installmentController.unpayInstallment);
 
 export default router;
 
@@ -3429,6 +3831,7 @@ import Dashboard from './components/Dashboard';
 import Transactions from './components/Transactions';
 import Installments from './components/Installments';
 import Accounts from './components/Accounts';
+import CreditCards from './components/CreditCards';
 import Categories from './components/Categories';
 import Tags from './components/Tags';
 import Budgets from './components/Budgets';
@@ -3474,6 +3877,7 @@ export default function App() {
       {page === 'transactions' && <Transactions />}
       {page === 'installments' && <Installments />}
       {page === 'accounts' && <Accounts />}
+      {page === 'credit-cards' && <CreditCards />}
       {page === 'categories' && <Categories />}
       {page === 'tags' && <Tags />}
       {page === 'budgets' && <Budgets />}
@@ -3612,18 +4016,28 @@ ARQUIVO: frontend\src\vite-env.d.ts
 ARQUIVO: frontend\src\components\Accounts.tsx
 --------------------------------------------------------------------------------
 import { useState, useEffect } from 'react';
-import { Plus, X, Pencil, Trash2, CreditCard, Wallet, Building2, PiggyBank, Banknote, Power, PowerOff } from 'lucide-react';
+import {
+  Plus,
+  X,
+  Pencil,
+  Trash2,
+  Wallet,
+  Building2,
+  PiggyBank,
+  Banknote,
+  Power,
+  PowerOff,
+} from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { accountService, Account } from '../services/accountService';
 import { formatBRL } from '../data/mock';
 
-const iconMap: Record<string, any> = { CreditCard, Wallet, Building2, PiggyBank, Banknote };
+const iconMap: Record<string, any> = { Wallet, Building2, PiggyBank, Banknote };
 
 const typeLabel: Record<string, string> = {
   checking: 'Conta Corrente',
   savings: 'Poupança',
   cash: 'Dinheiro Físico',
-  credit: 'Cartão de Crédito',
   digital: 'Carteira Digital',
 };
 
@@ -3640,17 +4054,16 @@ export default function Accounts() {
     balance: '',
     color: '#10b981',
     institution: '',
-    limit: '',
-    closing: '',
-    due: '',
-    status: 'active' as 'active' | 'inactive', // alterado
+    status: 'active' as 'active' | 'inactive',
   });
-  const [confirmAction, setConfirmAction] = useState<{ type: 'delete' | 'toggle'; id: number } | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{
+    type: 'delete' | 'toggle';
+    id: number;
+  } | null>(null);
 
   const loadAccounts = async () => {
     try {
       setLoading(true);
-      // Busca todas as contas (incluindo inativas) para exibição
       const data = await accountService.getAll(token!);
       setAccounts(data);
     } catch (err: any) {
@@ -3664,10 +4077,17 @@ export default function Accounts() {
     if (token) loadAccounts();
   }, [token]);
 
-  const netWorth = accounts.filter(a => a.status === 'active').reduce((s, a) => s + a.balance, 0);
+  const netWorth = accounts.filter((a) => a.status === 'active').reduce((s, a) => s + a.balance, 0);
 
   const openNew = () => {
-    setForm({ name: '', type: 'checking', balance: '', color: '#10b981', institution: '', limit: '', closing: '', due: '', status: 'active' });
+    setForm({
+      name: '',
+      type: 'checking',
+      balance: '',
+      color: '#10b981',
+      institution: '',
+      status: 'active',
+    });
     setEditId(null);
     setShowModal(true);
   };
@@ -3679,9 +4099,6 @@ export default function Accounts() {
       balance: String(acc.balance),
       color: acc.color,
       institution: acc.institution || '',
-      limit: acc.limit_amount ? String(acc.limit_amount) : '',
-      closing: acc.closing_day ? String(acc.closing_day) : '',
-      due: acc.due_day ? String(acc.due_day) : '',
       status: acc.status,
     });
     setEditId(acc.id);
@@ -3691,28 +4108,30 @@ export default function Accounts() {
   const save = async () => {
     try {
       if (editId) {
-        await accountService.update(editId, {
-          name: form.name,
-          color: form.color,
-          institution: form.institution,
-          limit_amount: parseFloat(form.limit) || undefined,
-          closing_day: parseInt(form.closing) || undefined,
-          due_day: parseInt(form.due) || undefined,
-          status: form.status, // enviar status
-        }, token!);
+        await accountService.update(
+          editId,
+          {
+            name: form.name,
+            color: form.color,
+            institution: form.institution,
+            status: form.status,
+          },
+          token!
+        );
       } else {
-        await accountService.create({
-          name: form.name,
-          type: form.type,
-          balance: parseFloat(form.balance.replace(',', '.')) || 0,
-          color: form.color,
-          institution: form.institution,
-          icon: form.type === 'credit' ? 'CreditCard' : form.type === 'cash' ? 'Banknote' : form.type === 'savings' ? 'PiggyBank' : 'Wallet',
-          limit_amount: parseFloat(form.limit) || undefined,
-          closing_day: parseInt(form.closing) || undefined,
-          due_day: parseInt(form.due) || undefined,
-          status: form.status,
-        }, token!);
+        await accountService.create(
+          {
+            name: form.name,
+            type: form.type,
+            balance: parseFloat(form.balance.replace(',', '.')) || 0,
+            color: form.color,
+            institution: form.institution,
+            icon:
+              form.type === 'cash' ? 'Banknote' : form.type === 'savings' ? 'PiggyBank' : 'Wallet',
+            status: form.status,
+          },
+          token!
+        );
       }
       setShowModal(false);
       await loadAccounts();
@@ -3723,7 +4142,7 @@ export default function Accounts() {
 
   const toggleActive = async (id: number) => {
     try {
-      const account = accounts.find(a => a.id === id);
+      const account = accounts.find((a) => a.id === id);
       if (!account) return;
       const newStatus = account.status === 'active' ? 'inactive' : 'active';
       await accountService.update(id, { status: newStatus }, token!);
@@ -3760,37 +4179,81 @@ export default function Accounts() {
     );
   }
 
-  const balanceClass = (b: number) => b >= 0 ? 'var(--primary)' : 'var(--danger)';
+  const balanceClass = (b: number) => (b >= 0 ? 'var(--primary)' : 'var(--danger)');
 
   return (
     <div className="max-w-6xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-lg font-bold" style={{ letterSpacing: '-0.03em' }}>Contas</h1>
+          <h1 className="text-lg font-bold" style={{ letterSpacing: '-0.03em' }}>
+            Contas
+          </h1>
           <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
-            {accounts.filter(a => a.status === 'active').length} ativa(s) · {accounts.filter(a => a.status !== 'active').length} inativa(s)
+            {accounts.filter((a) => a.status === 'active').length} ativa(s) ·{' '}
+            {accounts.filter((a) => a.status !== 'active').length} inativa(s)
           </p>
         </div>
-        <button onClick={openNew} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90" style={{ background: 'var(--primary)', color: '#fff' }}>
+        <button
+          onClick={openNew}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
+          style={{ background: 'var(--primary)', color: '#fff' }}
+        >
           <Plus size={14} /> Nova conta
         </button>
       </div>
 
       {/* Net Worth Banner */}
-      <div className="rounded-xl p-5 mb-6 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(99,102,241,0.08) 100%)', border: '1px solid rgba(16,185,129,0.2)' }}>
+      <div
+        className="rounded-xl p-5 mb-6 flex items-center justify-between"
+        style={{
+          background:
+            'linear-gradient(135deg, rgba(16,185,129,0.08) 0%, rgba(99,102,241,0.08) 100%)',
+          border: '1px solid rgba(16,185,129,0.2)',
+        }}
+      >
         <div>
-          <p className="text-xs font-semibold mb-1" style={{ color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Patrimônio Líquido (contas ativas)</p>
-          <p className="text-3xl font-bold mono" style={{ color: 'var(--primary)', letterSpacing: '-0.05em' }}>{formatBRL(netWorth)}</p>
+          <p
+            className="text-xs font-semibold mb-1"
+            style={{
+              color: 'var(--muted-foreground)',
+              textTransform: 'uppercase',
+              letterSpacing: '0.06em',
+            }}
+          >
+            Patrimônio Líquido (contas ativas)
+          </p>
+          <p
+            className="text-3xl font-bold mono"
+            style={{ color: 'var(--primary)', letterSpacing: '-0.05em' }}
+          >
+            {formatBRL(netWorth)}
+          </p>
         </div>
         <div className="flex gap-8 text-right">
           <div>
-            <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>Total Ativos</p>
-            <p className="text-base font-semibold mono" style={{ color: 'var(--primary)' }}>{formatBRL(accounts.filter(a => a.status === 'active' && a.balance > 0).reduce((s, a) => s + a.balance, 0))}</p>
+            <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>
+              Total Ativos
+            </p>
+            <p className="text-base font-semibold mono" style={{ color: 'var(--primary)' }}>
+              {formatBRL(
+                accounts
+                  .filter((a) => a.status === 'active' && a.balance > 0)
+                  .reduce((s, a) => s + a.balance, 0)
+              )}
+            </p>
           </div>
           <div>
-            <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>Total Passivos</p>
-            <p className="text-base font-semibold mono" style={{ color: 'var(--danger)' }}>{formatBRL(accounts.filter(a => a.status === 'active' && a.balance < 0).reduce((s, a) => s + Math.abs(a.balance), 0))}</p>
+            <p className="text-xs mb-1" style={{ color: 'var(--muted-foreground)' }}>
+              Total Passivos
+            </p>
+            <p className="text-base font-semibold mono" style={{ color: 'var(--danger)' }}>
+              {formatBRL(
+                accounts
+                  .filter((a) => a.status === 'active' && a.balance < 0)
+                  .reduce((s, a) => s + Math.abs(a.balance), 0)
+              )}
+            </p>
           </div>
         </div>
       </div>
@@ -3799,161 +4262,240 @@ export default function Accounts() {
       <div className="grid grid-cols-3 gap-4">
         {accounts.map((acc) => {
           const Icon = iconMap[acc.icon] || Wallet;
-          const isCredit = acc.type === 'credit';
-          const usedPct = isCredit && acc.limit_amount ? (Math.abs(acc.balance) / (acc.limit_amount || 1)) * 100 : 0;
           const isActive = acc.status === 'active';
           return (
-            <div key={acc.id} className={`rounded-xl p-5 relative overflow-hidden group ${!isActive ? 'opacity-60' : ''}`} style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-              <div className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl" style={{ background: acc.color }} />
+            <div
+              key={acc.id}
+              className={`rounded-xl p-5 relative overflow-hidden group ${!isActive ? 'opacity-60' : ''}`}
+              style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+            >
+              <div
+                className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl"
+                style={{ background: acc.color }}
+              />
               {!isActive && (
-                <div className="absolute top-2 right-2 text-xs px-2 py-0.5 rounded-full" style={{ background: 'var(--secondary)', color: 'var(--muted-foreground)' }}>
+                <div
+                  className="absolute top-2 right-2 text-xs px-2 py-0.5 rounded-full"
+                  style={{ background: 'var(--secondary)', color: 'var(--muted-foreground)' }}
+                >
                   Inativa
                 </div>
               )}
 
               <div className="flex items-start justify-between mb-4">
                 <div className="flex items-center gap-2.5">
-                  <div className="w-9 h-9 rounded-lg flex items-center justify-center" style={{ background: acc.color + '22' }}>
+                  <div
+                    className="w-9 h-9 rounded-lg flex items-center justify-center"
+                    style={{ background: acc.color + '22' }}
+                  >
                     <Icon size={17} style={{ color: acc.color }} />
                   </div>
                   <div>
                     <p className="text-sm font-semibold leading-tight">{acc.name}</p>
-                    <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{typeLabel[acc.type] || acc.type}</p>
+                    <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      {typeLabel[acc.type] || acc.type}
+                    </p>
                   </div>
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button onClick={() => openEdit(acc)} className="w-6 h-6 rounded flex items-center justify-center" style={{ color: 'var(--muted-foreground)' }}>
+                  <button
+                    onClick={() => openEdit(acc)}
+                    className="w-6 h-6 rounded flex items-center justify-center"
+                    style={{ color: 'var(--muted-foreground)' }}
+                  >
                     <Pencil size={12} />
                   </button>
-                  <button onClick={() => setConfirmAction({ type: 'toggle', id: acc.id })} className="w-6 h-6 rounded flex items-center justify-center" style={{ color: isActive ? 'var(--warning)' : 'var(--primary)' }}>
+                  <button
+                    onClick={() => setConfirmAction({ type: 'toggle', id: acc.id })}
+                    className="w-6 h-6 rounded flex items-center justify-center"
+                    style={{ color: isActive ? 'var(--warning)' : 'var(--primary)' }}
+                  >
                     {isActive ? <PowerOff size={12} /> : <Power size={12} />}
                   </button>
-                  <button onClick={() => setConfirmAction({ type: 'delete', id: acc.id })} className="w-6 h-6 rounded flex items-center justify-center" style={{ color: 'var(--danger)' }}>
+                  <button
+                    onClick={() => setConfirmAction({ type: 'delete', id: acc.id })}
+                    className="w-6 h-6 rounded flex items-center justify-center"
+                    style={{ color: 'var(--danger)' }}
+                  >
                     <Trash2 size={12} />
                   </button>
                 </div>
               </div>
 
               {acc.institution && (
-                <p className="text-xs mb-3" style={{ color: 'var(--muted-foreground)' }}>{acc.institution}</p>
+                <p className="text-xs mb-3" style={{ color: 'var(--muted-foreground)' }}>
+                  {acc.institution}
+                </p>
               )}
 
               <div className="mb-1">
-                <p className="text-xs mb-0.5" style={{ color: 'var(--muted-foreground)' }}>{isCredit ? 'Fatura atual' : 'Saldo'}</p>
-                <p className="text-xl font-bold mono" style={{ color: balanceClass(acc.balance), letterSpacing: '-0.04em' }}>
-                  {formatBRL(Math.abs(acc.balance))}
+                <p className="text-xs mb-0.5" style={{ color: 'var(--muted-foreground)' }}>
+                  Saldo
+                </p>
+                <p
+                  className="text-xl font-bold mono"
+                  style={{ color: balanceClass(acc.balance), letterSpacing: '-0.04em' }}
+                >
+                  {formatBRL(acc.balance)}
                 </p>
               </div>
-
-              {isCredit && acc.limit_amount && (
-                <>
-                  <div className="flex justify-between text-xs mb-1.5 mt-3" style={{ color: 'var(--muted-foreground)' }}>
-                    <span>Limite disponível: <span className="font-medium" style={{ color: 'var(--foreground)' }}>{formatBRL(acc.limit_amount - Math.abs(acc.balance))}</span></span>
-                    <span>{Math.round(usedPct)}%</span>
-                  </div>
-                  <div className="w-full h-1.5 rounded-full overflow-hidden" style={{ background: 'var(--secondary)' }}>
-                    <div className="h-full rounded-full" style={{ width: `${usedPct}%`, background: usedPct > 85 ? 'var(--danger)' : usedPct > 60 ? 'var(--warning)' : acc.color }} />
-                  </div>
-                  <div className="flex justify-between text-xs mt-2" style={{ color: 'var(--muted-foreground)' }}>
-                    <span>Fechamento: dia {acc.closing_day}</span>
-                    <span>Vencimento: dia {acc.due_day}</span>
-                  </div>
-                </>
-              )}
             </div>
           );
         })}
 
-        <button onClick={openNew} className="rounded-xl p-5 flex flex-col items-center justify-center gap-2 transition-all hover:opacity-80" style={{ border: '2px dashed var(--border)', minHeight: 140 }}>
+        <button
+          onClick={openNew}
+          className="rounded-xl p-5 flex flex-col items-center justify-center gap-2 transition-all hover:opacity-80"
+          style={{ border: '2px dashed var(--border)', minHeight: 140 }}
+        >
           <Plus size={20} style={{ color: 'var(--muted-foreground)' }} />
-          <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Adicionar conta</span>
+          <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+            Adicionar conta
+          </span>
         </button>
       </div>
 
       {/* Modal */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(7,9,13,0.8)', backdropFilter: 'blur(4px)' }}>
-          <div className="w-full max-w-md rounded-xl overflow-hidden" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
-            <div className="flex items-center justify-between px-6 py-4 border-b" style={{ borderColor: 'var(--border)' }}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(7,9,13,0.8)', backdropFilter: 'blur(4px)' }}
+        >
+          <div
+            className="w-full max-w-md rounded-xl overflow-hidden"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+          >
+            <div
+              className="flex items-center justify-between px-6 py-4 border-b"
+              style={{ borderColor: 'var(--border)' }}
+            >
               <h2 className="font-semibold">{editId ? 'Editar conta' : 'Nova conta'}</h2>
-              <button onClick={() => setShowModal(false)} style={{ color: 'var(--muted-foreground)' }}><X size={18} /></button>
+              <button
+                onClick={() => setShowModal(false)}
+                style={{ color: 'var(--muted-foreground)' }}
+              >
+                <X size={18} />
+              </button>
             </div>
             <div className="p-6 flex flex-col gap-4">
               <div className="flex flex-col gap-1">
-                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Nome *</label>
-                <input value={form.name} onChange={e => setForm(p => ({ ...p, name: e.target.value }))} placeholder="Ex: Nubank" className="w-full" />
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Nome *
+                </label>
+                <input
+                  value={form.name}
+                  onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="Ex: Nubank"
+                  className="w-full"
+                />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Tipo *</label>
-                  <select value={form.type} onChange={e => setForm(p => ({ ...p, type: e.target.value as Account['type'] }))} className="w-full" disabled={!!editId}>
+                  <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                    Tipo *
+                  </label>
+                  <select
+                    value={form.type}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, type: e.target.value as Account['type'] }))
+                    }
+                    className="w-full"
+                    disabled={!!editId}
+                  >
                     <option value="checking">Conta Corrente</option>
                     <option value="savings">Poupança</option>
                     <option value="cash">Dinheiro Físico</option>
-                    <option value="credit">Cartão de Crédito</option>
                     <option value="digital">Carteira Digital</option>
                   </select>
-                  {editId && <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Tipo não pode ser alterado</p>}
+                  {editId && (
+                    <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      Tipo não pode ser alterado
+                    </p>
+                  )}
                 </div>
                 {!editId && (
                   <div className="flex flex-col gap-1">
-                    <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Saldo inicial</label>
-                    <input type="number" value={form.balance} onChange={e => setForm(p => ({ ...p, balance: e.target.value }))} placeholder="0,00" className="w-full" />
+                    <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      Saldo inicial
+                    </label>
+                    <input
+                      type="number"
+                      value={form.balance}
+                      onChange={(e) => setForm((p) => ({ ...p, balance: e.target.value }))}
+                      placeholder="0,00"
+                      className="w-full"
+                    />
                   </div>
                 )}
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Instituição</label>
-                  <input value={form.institution} onChange={e => setForm(p => ({ ...p, institution: e.target.value }))} placeholder="Ex: Nubank" className="w-full" />
+                  <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                    Instituição
+                  </label>
+                  <input
+                    value={form.institution}
+                    onChange={(e) => setForm((p) => ({ ...p, institution: e.target.value }))}
+                    placeholder="Ex: Nubank"
+                    className="w-full"
+                  />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Cor</label>
+                  <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                    Cor
+                  </label>
                   <div className="flex items-center gap-2">
-                    <input type="color" value={form.color} onChange={e => setForm(p => ({ ...p, color: e.target.value }))} className="h-9 w-16 rounded cursor-pointer" style={{ padding: 2 }} />
-                    <span className="text-xs mono" style={{ color: 'var(--muted-foreground)' }}>{form.color}</span>
+                    <input
+                      type="color"
+                      value={form.color}
+                      onChange={(e) => setForm((p) => ({ ...p, color: e.target.value }))}
+                      className="h-9 w-16 rounded cursor-pointer"
+                      style={{ padding: 2 }}
+                    />
+                    <span className="text-xs mono" style={{ color: 'var(--muted-foreground)' }}>
+                      {form.color}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {form.type === 'credit' && (
-                <div className="p-4 rounded-lg flex flex-col gap-3" style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}>
-                  <p className="text-xs font-semibold" style={{ color: 'var(--muted-foreground)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Configurações do cartão</p>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Limite total</label>
-                      <input type="number" value={form.limit} onChange={e => setForm(p => ({ ...p, limit: e.target.value }))} placeholder="5000" className="w-full" />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Fechamento</label>
-                      <input type="number" min={1} max={31} value={form.closing} onChange={e => setForm(p => ({ ...p, closing: e.target.value }))} placeholder="dia" className="w-full" />
-                    </div>
-                    <div className="flex flex-col gap-1">
-                      <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Vencimento</label>
-                      <input type="number" min={1} max={31} value={form.due} onChange={e => setForm(p => ({ ...p, due: e.target.value }))} placeholder="dia" className="w-full" />
-                    </div>
-                  </div>
-                </div>
-              )}
-
               <div className="flex items-center gap-3">
-                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>Status</label>
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Status
+                </label>
                 <button
                   type="button"
-                  onClick={() => setForm(p => ({ ...p, status: p.status === 'active' ? 'inactive' : 'active' }))}
+                  onClick={() =>
+                    setForm((p) => ({
+                      ...p,
+                      status: p.status === 'active' ? 'inactive' : 'active',
+                    }))
+                  }
                   className={`relative w-10 h-6 rounded-full transition-all ${form.status === 'active' ? 'bg-primary' : 'bg-border'}`}
                 >
-                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${form.status === 'active' ? 'left-5' : 'left-1'}`} />
+                  <span
+                    className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${form.status === 'active' ? 'left-5' : 'left-1'}`}
+                  />
                 </button>
                 <span className="text-xs">{form.status === 'active' ? 'Ativa' : 'Inativa'}</span>
               </div>
             </div>
 
             <div className="flex gap-3 px-6 pb-6">
-              <button onClick={() => setShowModal(false)} className="flex-1 py-2.5 rounded-lg text-sm" style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}>Cancelar</button>
-              <button onClick={save} className="flex-1 py-2.5 rounded-lg text-sm font-medium" style={{ background: 'var(--primary)', color: '#fff' }}>
+              <button
+                onClick={() => setShowModal(false)}
+                className="flex-1 py-2.5 rounded-lg text-sm"
+                style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={save}
+                className="flex-1 py-2.5 rounded-lg text-sm font-medium"
+                style={{ background: 'var(--primary)', color: '#fff' }}
+              >
                 {editId ? 'Salvar' : 'Criar conta'}
               </button>
             </div>
@@ -3963,8 +4505,14 @@ export default function Accounts() {
 
       {/* Confirm Action Modal */}
       {confirmAction && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(7,9,13,0.8)' }}>
-          <div className="w-80 rounded-xl p-6" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(7,9,13,0.8)' }}
+        >
+          <div
+            className="w-80 rounded-xl p-6"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+          >
             <h3 className="font-semibold mb-2">
               {confirmAction.type === 'delete' ? 'Excluir conta' : 'Alterar status'}
             </h3>
@@ -3974,14 +4522,22 @@ export default function Accounts() {
                 : 'Deseja alterar o status da conta entre ativa e inativa? Contas inativas não podem ser usadas em novas transações.'}
             </p>
             <div className="flex gap-2">
-              <button onClick={() => setConfirmAction(null)} className="flex-1 py-2 rounded-lg text-sm" style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}>Cancelar</button>
+              <button
+                onClick={() => setConfirmAction(null)}
+                className="flex-1 py-2 rounded-lg text-sm"
+                style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+              >
+                Cancelar
+              </button>
               <button
                 onClick={() => {
                   if (confirmAction.type === 'delete') deleteAccount(confirmAction.id);
                   else toggleActive(confirmAction.id);
                 }}
                 className="flex-1 py-2 rounded-lg text-sm font-medium text-white"
-                style={{ background: confirmAction.type === 'delete' ? 'var(--danger)' : 'var(--primary)' }}
+                style={{
+                  background: confirmAction.type === 'delete' ? 'var(--danger)' : 'var(--primary)',
+                }}
               >
                 Confirmar
               </button>
@@ -3992,6 +4548,7 @@ export default function Accounts() {
     </div>
   );
 }
+
 
 --------------------------------------------------------------------------------
 ARQUIVO: frontend\src\components\Budgets.tsx
@@ -4607,6 +5164,479 @@ export default function Categories() {
                 style={{ color: 'var(--muted-foreground)' }}
               >
                 Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+--------------------------------------------------------------------------------
+ARQUIVO: frontend\src\components\CreditCards.tsx
+--------------------------------------------------------------------------------
+import { useState, useEffect } from 'react';
+import {
+  Plus,
+  X,
+  Pencil,
+  Trash2,
+  CreditCard as CreditCardIcon,
+  Wallet,
+  Building2,
+  Banknote,
+  Power,
+  PowerOff,
+} from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { creditCardService, CreditCard } from '../services/creditCardService';
+import { formatBRL } from '../data/mock';
+
+const iconMap: Record<string, any> = { CreditCard: CreditCardIcon, Wallet, Building2, Banknote };
+
+export default function CreditCards() {
+  const { token } = useAuth();
+  const [cards, setCards] = useState<CreditCard[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null);
+  const [form, setForm] = useState({
+    name: '',
+    institution: '',
+    limit_amount: '',
+    closing_day: '',
+    due_day: '',
+    color: '#10b981',
+    icon: 'CreditCard',
+    status: 'active' as 'active' | 'inactive',
+  });
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
+
+  const loadCards = async () => {
+    try {
+      setLoading(true);
+      const data = await creditCardService.getAll(token!);
+      setCards(data);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (token) loadCards();
+  }, [token]);
+
+  const openNew = () => {
+    setForm({
+      name: '',
+      institution: '',
+      limit_amount: '',
+      closing_day: '',
+      due_day: '',
+      color: '#10b981',
+      icon: 'CreditCard',
+      status: 'active',
+    });
+    setEditId(null);
+    setShowModal(true);
+  };
+
+  const openEdit = (card: CreditCard) => {
+    setForm({
+      name: card.name,
+      institution: card.institution || '',
+      limit_amount: String(card.limit_amount),
+      closing_day: String(card.closing_day),
+      due_day: String(card.due_day),
+      color: card.color,
+      icon: card.icon,
+      status: card.status,
+    });
+    setEditId(card.id);
+    setShowModal(true);
+  };
+
+  const save = async () => {
+    try {
+      const payload = {
+        name: form.name,
+        institution: form.institution,
+        limit_amount: parseFloat(form.limit_amount) || 0,
+        closing_day: parseInt(form.closing_day) || 1,
+        due_day: parseInt(form.due_day) || 1,
+        color: form.color,
+        icon: form.icon,
+        status: form.status,
+      };
+
+      if (editId) {
+        await creditCardService.update(editId, payload, token!);
+      } else {
+        await creditCardService.create(payload, token!);
+      }
+      setShowModal(false);
+      await loadCards();
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  const deleteCard = async (id: number) => {
+    try {
+      await creditCardService.delete(id, token!);
+      await loadCards();
+      setConfirmDelete(null);
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="text-center py-10" style={{ color: 'var(--danger)' }}>
+        Erro ao carregar cartões: {error}
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-6xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-lg font-bold" style={{ letterSpacing: '-0.03em' }}>
+            Cartões de Crédito
+          </h1>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
+            {cards.filter((c) => c.status === 'active').length} ativo(s) ·{' '}
+            {cards.filter((c) => c.status !== 'active').length} inativo(s)
+          </p>
+        </div>
+        <button
+          onClick={openNew}
+          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
+          style={{ background: 'var(--primary)', color: '#fff' }}
+        >
+          <Plus size={14} /> Novo cartão
+        </button>
+      </div>
+
+      <div className="grid grid-cols-3 gap-4">
+        {cards.map((card) => {
+          const Icon = iconMap[card.icon] || CreditCardIcon;
+          const usedPct =
+            card.limit_amount > 0 ? ((card.current_balance || 0) / card.limit_amount) * 100 : 0;
+          const isActive = card.status === 'active';
+          return (
+            <div
+              key={card.id}
+              className={`rounded-xl p-5 relative overflow-hidden group ${!isActive ? 'opacity-60' : ''}`}
+              style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+            >
+              <div
+                className="absolute top-0 left-0 right-0 h-0.5 rounded-t-xl"
+                style={{ background: card.color }}
+              />
+              {!isActive && (
+                <div
+                  className="absolute top-2 right-2 text-xs px-2 py-0.5 rounded-full"
+                  style={{ background: 'var(--secondary)', color: 'var(--muted-foreground)' }}
+                >
+                  Inativo
+                </div>
+              )}
+
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="w-9 h-9 rounded-lg flex items-center justify-center"
+                    style={{ background: card.color + '22' }}
+                  >
+                    <Icon size={17} style={{ color: card.color }} />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold leading-tight">{card.name}</p>
+                    <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      {card.institution || 'Cartão de crédito'}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => openEdit(card)}
+                    className="w-6 h-6 rounded flex items-center justify-center"
+                    style={{ color: 'var(--muted-foreground)' }}
+                  >
+                    <Pencil size={12} />
+                  </button>
+                  <button
+                    onClick={() => setConfirmDelete(card.id)}
+                    className="w-6 h-6 rounded flex items-center justify-center"
+                    style={{ color: 'var(--danger)' }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                </div>
+              </div>
+
+              <div className="mb-1">
+                <p className="text-xs mb-0.5" style={{ color: 'var(--muted-foreground)' }}>
+                  Fatura atual
+                </p>
+                <p className="text-xl font-bold mono" style={{ color: 'var(--danger)' }}>
+                  {formatBRL(card.current_balance || 0)}
+                </p>
+              </div>
+
+              {card.limit_amount > 0 && (
+                <>
+                  <div
+                    className="flex justify-between text-xs mb-1.5 mt-3"
+                    style={{ color: 'var(--muted-foreground)' }}
+                  >
+                    <span>
+                      Limite disponível:{' '}
+                      <span className="font-medium" style={{ color: 'var(--foreground)' }}>
+                        {formatBRL(Math.max(0, card.limit_amount - (card.current_balance || 0)))}
+                      </span>
+                    </span>
+                    <span>{Math.round(usedPct)}%</span>
+                  </div>
+                  <div
+                    className="w-full h-1.5 rounded-full overflow-hidden"
+                    style={{ background: 'var(--secondary)' }}
+                  >
+                    <div
+                      className="h-full rounded-full"
+                      style={{
+                        width: `${Math.min(usedPct, 100)}%`,
+                        background:
+                          usedPct > 85
+                            ? 'var(--danger)'
+                            : usedPct > 60
+                              ? 'var(--warning)'
+                              : card.color,
+                      }}
+                    />
+                  </div>
+                </>
+              )}
+              <div
+                className="flex justify-between text-xs mt-2"
+                style={{ color: 'var(--muted-foreground)' }}
+              >
+                <span>Fechamento: dia {card.closing_day}</span>
+                <span>Vencimento: dia {card.due_day}</span>
+              </div>
+            </div>
+          );
+        })}
+
+        <button
+          onClick={openNew}
+          className="rounded-xl p-5 flex flex-col items-center justify-center gap-2 transition-all hover:opacity-80"
+          style={{ border: '2px dashed var(--border)', minHeight: 140 }}
+        >
+          <Plus size={20} style={{ color: 'var(--muted-foreground)' }} />
+          <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+            Adicionar cartão
+          </span>
+        </button>
+      </div>
+
+      {/* Modal de criação/edição */}
+      {showModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(7,9,13,0.8)', backdropFilter: 'blur(4px)' }}
+        >
+          <div
+            className="w-full max-w-md rounded-xl overflow-hidden"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+          >
+            <div
+              className="flex items-center justify-between px-6 py-4 border-b"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <h2 className="font-semibold">{editId ? 'Editar cartão' : 'Novo cartão'}</h2>
+              <button
+                onClick={() => setShowModal(false)}
+                style={{ color: 'var(--muted-foreground)' }}
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="p-6 flex flex-col gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Nome *
+                </label>
+                <input
+                  value={form.name}
+                  onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))}
+                  placeholder="Ex: Cartão Inter"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                    Limite total *
+                  </label>
+                  <input
+                    type="number"
+                    value={form.limit_amount}
+                    onChange={(e) => setForm((p) => ({ ...p, limit_amount: e.target.value }))}
+                    placeholder="5000"
+                    className="w-full"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                    Instituição
+                  </label>
+                  <input
+                    value={form.institution}
+                    onChange={(e) => setForm((p) => ({ ...p, institution: e.target.value }))}
+                    placeholder="Ex: Banco Inter"
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                    Dia de fechamento *
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={form.closing_day}
+                    onChange={(e) => setForm((p) => ({ ...p, closing_day: e.target.value }))}
+                    placeholder="dia"
+                    className="w-full"
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                    Dia de vencimento *
+                  </label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    value={form.due_day}
+                    onChange={(e) => setForm((p) => ({ ...p, due_day: e.target.value }))}
+                    placeholder="dia"
+                    className="w-full"
+                  />
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Cor
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={form.color}
+                    onChange={(e) => setForm((p) => ({ ...p, color: e.target.value }))}
+                    className="h-9 w-16 rounded cursor-pointer"
+                    style={{ padding: 2 }}
+                  />
+                  <span className="text-xs mono" style={{ color: 'var(--muted-foreground)' }}>
+                    {form.color}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Status
+                </label>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm((p) => ({
+                      ...p,
+                      status: p.status === 'active' ? 'inactive' : 'active',
+                    }))
+                  }
+                  className={`relative w-10 h-6 rounded-full transition-all ${form.status === 'active' ? 'bg-primary' : 'bg-border'}`}
+                >
+                  <span
+                    className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-all ${form.status === 'active' ? 'left-5' : 'left-1'}`}
+                  />
+                </button>
+                <span className="text-xs">{form.status === 'active' ? 'Ativo' : 'Inativo'}</span>
+              </div>
+            </div>
+
+            <div className="flex gap-3 px-6 pb-6">
+              <button
+                onClick={() => setShowModal(false)}
+                className="flex-1 py-2.5 rounded-lg text-sm"
+                style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={save}
+                className="flex-1 py-2.5 rounded-lg text-sm font-medium"
+                style={{ background: 'var(--primary)', color: '#fff' }}
+              >
+                {editId ? 'Salvar' : 'Criar cartão'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmar exclusão */}
+      {confirmDelete && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(7,9,13,0.8)' }}
+        >
+          <div
+            className="w-80 rounded-xl p-6"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+          >
+            <h3 className="font-semibold mb-2">Excluir cartão</h3>
+            <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>
+              Esta ação excluirá o cartão permanentemente. Só é permitido se não houver transações
+              vinculadas.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setConfirmDelete(null)}
+                className="flex-1 py-2 rounded-lg text-sm"
+                style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => deleteCard(confirmDelete)}
+                className="flex-1 py-2 rounded-lg text-sm font-medium text-white"
+                style={{ background: 'var(--danger)' }}
+              >
+                Excluir
               </button>
             </div>
           </div>
@@ -5701,7 +6731,7 @@ export default function ImportExport() {
 --------------------------------------------------------------------------------
 ARQUIVO: frontend\src\components\Installments.tsx
 --------------------------------------------------------------------------------
-import { useState, useEffect } from 'react';
+import { useState, useEffect, JSX } from 'react';
 import {
   Plus,
   X,
@@ -5712,10 +6742,12 @@ import {
   AlertCircle,
   Calendar,
   DollarSign,
+  Undo,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { installmentService, Installment } from '../services/installmentService';
 import { accountService, Account } from '../services/accountService';
+import { creditCardService, CreditCard } from '../services/creditCardService';
 import { categoryService, Category } from '../services/categoryService';
 import { formatBRL } from '../data/mock';
 
@@ -5744,19 +6776,30 @@ export default function Installments() {
     (Installment & { transactions?: any[] }) | null
   >(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
 
-  // Form state
   const [form, setForm] = useState({
     account_id: '',
+    credit_card_id: '',
     category_id: '',
     description: '',
     total_amount: '',
     installment_count: '1',
     start_date: new Date().toISOString().slice(0, 10),
   });
+
+  const combinedSources = [
+    ...accounts.map((a) => ({ ...a, sourceType: 'account' as const })),
+    ...creditCards.map((c) => ({
+      ...c,
+      sourceType: 'credit_card' as const,
+      name: c.name,
+      id: c.id,
+    })),
+  ];
 
   const loadData = async () => {
     if (!token) return;
@@ -5766,12 +6809,14 @@ export default function Installments() {
       if (filterStatus !== 'all') {
         filters.status = filterStatus;
       }
-      const [accs, cats, insts] = await Promise.all([
+      const [accs, cards, cats, insts] = await Promise.all([
         accountService.getAll(token, false),
+        creditCardService.getAll(token),
         categoryService.getAll(token),
         installmentService.getAll(token, filters),
       ]);
       setAccounts(accs);
+      setCreditCards(cards);
       setCategories(cats);
       setInstallments(insts);
     } catch (err: any) {
@@ -5787,7 +6832,8 @@ export default function Installments() {
 
   const openNew = () => {
     setForm({
-      account_id: accounts.length > 0 ? String(accounts[0].id) : '',
+      account_id: '',
+      credit_card_id: '',
       category_id: '',
       description: '',
       total_amount: '',
@@ -5800,7 +6846,8 @@ export default function Installments() {
 
   const openEdit = (inst: Installment) => {
     setForm({
-      account_id: String(inst.account_id),
+      account_id: String(inst.account_id || ''),
+      credit_card_id: String(inst.credit_card_id || ''),
       category_id: String(inst.category_id || ''),
       description: inst.description,
       total_amount: String(inst.total_amount),
@@ -5814,14 +6861,24 @@ export default function Installments() {
   const save = async () => {
     if (!token) return;
     try {
-      const payload = {
-        account_id: parseInt(form.account_id),
-        category_id: form.category_id ? parseInt(form.category_id) : null,
+      const payload: any = {
         description: form.description,
         total_amount: parseFloat(form.total_amount),
         installment_count: parseInt(form.installment_count),
         start_date: form.start_date,
+        category_id: form.category_id ? parseInt(form.category_id) : null,
       };
+      if (form.account_id) {
+        payload.account_id = parseInt(form.account_id);
+        payload.credit_card_id = null;
+      } else if (form.credit_card_id) {
+        payload.credit_card_id = parseInt(form.credit_card_id);
+        payload.account_id = null;
+      } else {
+        alert('Selecione uma conta ou cartão de crédito.');
+        return;
+      }
+
       if (editingId) {
         await installmentService.update(editingId, payload, token);
       } else {
@@ -5869,6 +6926,20 @@ export default function Installments() {
     }
   };
 
+  const unpayInstallment = async (installmentId: number, number: number) => {
+    if (!token) return;
+    try {
+      await installmentService.unpayInstallment(installmentId, number, token);
+      await loadData();
+      if (detailInstallment) {
+        const updated = await installmentService.getOne(installmentId, token);
+        setDetailInstallment(updated);
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   const filtered = installments.filter((inst) =>
     inst.description.toLowerCase().includes(search.toLowerCase())
   );
@@ -5888,6 +6959,24 @@ export default function Installments() {
       </div>
     );
   }
+
+  // Função para renderizar categorias com subcategorias
+  const renderCategoryOptions = (cats: Category[], depth = 0) => {
+    let options: JSX.Element[] = [];
+    for (const cat of cats) {
+      const indent = '  '.repeat(depth);
+      options.push(
+        <option key={cat.id} value={cat.id}>
+          {indent}
+          {cat.name}
+        </option>
+      );
+      if (cat.children && cat.children.length > 0) {
+        options = options.concat(renderCategoryOptions(cat.children, depth + 1));
+      }
+    }
+    return options;
+  };
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -5959,7 +7048,11 @@ export default function Installments() {
                       {statusLabels[inst.status as InstallmentStatus]}
                     </span>
                     <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                      {accounts.find((a) => a.id === inst.account_id)?.name || 'Conta'}
+                      {inst.account_id
+                        ? accounts.find((a) => a.id === inst.account_id)?.name || 'Conta'
+                        : inst.credit_card_id
+                          ? creditCards.find((c) => c.id === inst.credit_card_id)?.name || 'Cartão'
+                          : 'N/A'}
                     </span>
                   </div>
                 </div>
@@ -6109,17 +7202,29 @@ export default function Installments() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    Conta *
+                    Conta/Cartão *
                   </label>
                   <select
-                    value={form.account_id}
-                    onChange={(e) => setForm((p) => ({ ...p, account_id: e.target.value }))}
+                    value={form.account_id || form.credit_card_id || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!val) {
+                        setForm((p) => ({ ...p, account_id: '', credit_card_id: '' }));
+                        return;
+                      }
+                      const [type, id] = val.split('-');
+                      if (type === 'account') {
+                        setForm((p) => ({ ...p, account_id: id, credit_card_id: '' }));
+                      } else if (type === 'credit_card') {
+                        setForm((p) => ({ ...p, credit_card_id: id, account_id: '' }));
+                      }
+                    }}
                     className="w-full"
                   >
                     <option value="">Selecione</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
+                    {combinedSources.map((s) => (
+                      <option key={`${s.sourceType}-${s.id}`} value={`${s.sourceType}-${s.id}`}>
+                        {s.sourceType === 'account' ? 'Conta' : 'Cartão'}: {s.name}
                       </option>
                     ))}
                   </select>
@@ -6136,10 +7241,15 @@ export default function Installments() {
                     <option value="">Sem categoria</option>
                     {categories
                       .filter((c) => c.type === 'expense')
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
+                      .map((cat) => (
+                        <optgroup key={cat.id} label={cat.name}>
+                          <option value={cat.id}>{cat.name}</option>
+                          {cat.children?.map((sub) => (
+                            <option key={sub.id} value={sub.id}>
+                              {sub.name}
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
                   </select>
                 </div>
@@ -6197,7 +7307,7 @@ export default function Installments() {
             }}
           >
             <div
-              className="flex items-center justify-between px-6 py-4 border-b flex-shrink-0"
+              className="flex items-center justify-between px-6 py-4 border-b shrink-0"
               style={{ borderColor: 'var(--border)' }}
             >
               <div>
@@ -6259,6 +7369,17 @@ export default function Installments() {
                           <Check size={12} /> Pagar
                         </button>
                       )}
+                      {txn.status === 'confirmed' && (
+                        <button
+                          onClick={() =>
+                            unpayInstallment(detailInstallment.id, txn.installment_number)
+                          }
+                          className="px-2 py-1 rounded text-xs font-medium transition-opacity hover:opacity-80"
+                          style={{ background: 'rgba(239,68,68,0.15)', color: 'var(--danger)' }}
+                        >
+                          <Undo size={12} /> Desfazer
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -6301,6 +7422,7 @@ import {
   Lock,
   Plus,
   CreditCard,
+  CreditCardIcon,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -6309,6 +7431,7 @@ export type Page =
   | 'transactions'
   | 'installments'
   | 'accounts'
+  | 'credit-cards'
   | 'categories'
   | 'tags'
   | 'budgets'
@@ -6329,6 +7452,7 @@ const nav = [
   { id: 'transactions', label: 'Extrato', Icon: ListOrdered },
   { id: 'installments', label: 'Parcelamentos', Icon: CreditCard },
   { id: 'accounts', label: 'Contas', Icon: Wallet },
+  { id: 'credit-cards', label: 'Cartões', Icon: CreditCardIcon },
   { id: 'categories', label: 'Categorias', Icon: Tag },
   { id: 'tags', label: 'Etiquetas', Icon: Bookmark },
   { id: 'budgets', label: 'Orçamentos', Icon: BarChart3 },
@@ -8147,6 +9271,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { formatBRL } from '../data/mock';
 import { transactionService, Transaction as TransactionType } from '../services/transactionService';
 import { accountService, Account } from '../services/accountService';
+import { creditCardService, CreditCard } from '../services/creditCardService';
 import { categoryService, Category } from '../services/categoryService';
 import { tagService, Tag } from '../services/tagService';
 
@@ -8159,7 +9284,8 @@ interface TransactionForm {
   date: string;
   description: string;
   amount: number;
-  accountId: number;
+  accountId?: number | null;
+  creditCardId?: number | null;
   categoryId?: number | null;
   destAccountId?: number | null;
   status: 'pending' | 'confirmed' | 'cancelled';
@@ -8173,9 +9299,10 @@ const emptyTx: TransactionForm = {
   date: new Date().toISOString().slice(0, 10),
   description: '',
   amount: 0,
-  accountId: 0,
+  accountId: null,
+  creditCardId: null,
   categoryId: null,
-  status: 'confirmed',
+  status: 'pending',
   tagIds: [],
   installment_total: 1,
   installment_current: 1,
@@ -8186,6 +9313,7 @@ export default function Transactions() {
   const [txs, setTxs] = useState<TransactionWithTags[]>([]);
   const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [showModal, setShowModal] = useState(false);
@@ -8212,14 +9340,16 @@ export default function Transactions() {
       const startDate = new Date(year, month - 1, 1).toISOString().slice(0, 10);
       const endDate = new Date(year, month, 0).toISOString().slice(0, 10);
 
-      const [txns, accs, cats, tags] = await Promise.all([
+      const [txns, accs, cards, cats, tags] = await Promise.all([
         transactionService.getAll(token, { limit: 200, startDate, endDate }),
         accountService.getAll(token, false),
+        creditCardService.getAll(token),
         categoryService.getAll(token),
         tagService.getAll(token),
       ]);
       setTxs(txns);
       setAccounts(accs);
+      setCreditCards(cards);
       setCategories(cats);
       setAvailableTags(tags);
     } catch (err) {
@@ -8247,11 +9377,12 @@ export default function Transactions() {
     .reduce((s, t) => s + Math.abs(t.amount), 0);
 
   const openNew = () => {
-    const defaultAccountId = accounts.length > 0 ? accounts[0].id : 0;
     setEditTx({
       ...emptyTx,
       date: new Date().toISOString().slice(0, 10),
-      accountId: defaultAccountId,
+      accountId: null,
+      creditCardId: null,
+      status: 'pending',
     });
     setEditingId(null);
     setInstallments(1);
@@ -8264,7 +9395,8 @@ export default function Transactions() {
       date: tx.date,
       description: tx.description,
       amount: Math.abs(tx.amount),
-      accountId: tx.account_id,
+      accountId: tx.account_id ?? null,
+      creditCardId: (tx as any).credit_card_id ?? null,
       categoryId: tx.category_id ?? null,
       destAccountId: tx.dest_account_id ?? null,
       status: tx.status || 'confirmed',
@@ -8277,11 +9409,29 @@ export default function Transactions() {
     setShowModal(true);
   };
 
+  // Lista combinada para o seletor de conta/cartão
+  const combinedSources = [
+    ...accounts.map((a) => ({ ...a, sourceType: 'account' as const })),
+    ...creditCards.map((c) => ({
+      ...c,
+      sourceType: 'credit_card' as const,
+      name: c.name,
+      id: c.id,
+    })),
+  ];
+
   const save = async () => {
     if (!token) return;
+
+    if (editTx.status !== 'pending' && !editTx.accountId && !editTx.creditCardId) {
+      alert('Transações confirmadas ou canceladas devem ter uma conta ou cartão vinculado.');
+      return;
+    }
+
     try {
       const payload: any = {
-        account_id: editTx.accountId,
+        account_id: editTx.accountId || null,
+        credit_card_id: editTx.creditCardId || null,
         category_id: editTx.categoryId || null,
         dest_account_id: editTx.destAccountId || null,
         type: editTx.type,
@@ -8335,7 +9485,7 @@ export default function Transactions() {
     return found ? found.name : `ID ${id}`;
   };
 
-  const getAccountName = (id?: number) => {
+  const getAccountName = (id?: number | null) => {
     if (!id) return '—';
     const found = accounts.find((a) => a.id === id);
     return found ? found.name : `ID ${id}`;
@@ -8391,7 +9541,7 @@ export default function Transactions() {
 
       <div className="flex gap-4">
         {filterOpen && (
-          <div className="w-56 flex-shrink-0 flex flex-col gap-3">
+          <div className="w-56 shrink-0 flex flex-col gap-3">
             <div
               className="rounded-xl p-4"
               style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
@@ -8445,17 +9595,17 @@ export default function Transactions() {
                     className="text-xs mb-1 block"
                     style={{ color: 'var(--muted-foreground)' }}
                   >
-                    Conta
+                    Conta/Cartão
                   </label>
                   <select
                     className="w-full text-xs py-1.5"
                     value={filterAccount}
                     onChange={(e) => setFilterAccount(e.target.value)}
                   >
-                    <option value="">Todas</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
+                    <option value="">Todos</option>
+                    {combinedSources.map((s) => (
+                      <option key={`${s.sourceType}-${s.id}`} value={s.id}>
+                        {s.sourceType === 'account' ? 'Conta' : 'Cartão'}: {s.name}
                       </option>
                     ))}
                   </select>
@@ -8547,19 +9697,21 @@ export default function Transactions() {
           <table className="w-full">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                {['Data', 'Descrição', 'Categoria', 'Conta', 'Status', 'Valor', ''].map((h) => (
-                  <th
-                    key={h}
-                    className="text-left px-4 py-3 text-xs font-semibold"
-                    style={{
-                      color: 'var(--muted-foreground)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.04em',
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
+                {['Data', 'Descrição', 'Categoria', 'Conta/Cartão', 'Status', 'Valor', ''].map(
+                  (h) => (
+                    <th
+                      key={h}
+                      className="text-left px-4 py-3 text-xs font-semibold"
+                      style={{
+                        color: 'var(--muted-foreground)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      {h}
+                    </th>
+                  )
+                )}
               </tr>
             </thead>
             <tbody>
@@ -8618,7 +9770,14 @@ export default function Transactions() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    <span className="truncate block max-w-28">{getAccountName(tx.account_id)}</span>
+                    <span className="truncate block max-w-28">
+                      {tx.account_id
+                        ? getAccountName(tx.account_id)
+                        : (tx as any).credit_card_id
+                          ? creditCards.find((c) => c.id === (tx as any).credit_card_id)?.name ||
+                            'Cartão'
+                          : '—'}
+                    </span>
                   </td>
                   <td className="px-4 py-3">
                     <span
@@ -8648,22 +9807,30 @@ export default function Transactions() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => openEdit(tx)}
-                        className="w-6 h-6 rounded flex items-center justify-center transition-opacity hover:opacity-70"
-                        style={{ color: 'var(--muted-foreground)' }}
-                      >
-                        <Pencil size={12} />
-                      </button>
-                      <button
-                        onClick={() => setConfirmDelete(tx.id!)}
-                        className="w-6 h-6 rounded flex items-center justify-center transition-opacity hover:opacity-70"
-                        style={{ color: 'var(--danger)' }}
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
+                    {tx.installment_id ? (
+                      <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                        (parcela)
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => openEdit(tx)}
+                          className="w-6 h-6 rounded flex items-center justify-center transition-opacity hover:opacity-70"
+                          style={{ color: 'var(--muted-foreground)' }}
+                          title="Editar transação"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete(tx.id!)}
+                          className="w-6 h-6 rounded flex items-center justify-center transition-opacity hover:opacity-70"
+                          style={{ color: 'var(--danger)' }}
+                          title="Excluir transação"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -8781,19 +9948,29 @@ export default function Transactions() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    Conta
+                    Conta/Cartão
                   </label>
                   <select
-                    value={editTx.accountId}
-                    onChange={(e) =>
-                      setEditTx((p) => ({ ...p, accountId: parseInt(e.target.value) }))
-                    }
+                    value={editTx.accountId ?? editTx.creditCardId ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!val) {
+                        setEditTx((p) => ({ ...p, accountId: null, creditCardId: null }));
+                        return;
+                      }
+                      const [type, id] = val.split('-');
+                      if (type === 'account') {
+                        setEditTx((p) => ({ ...p, accountId: parseInt(id), creditCardId: null }));
+                      } else if (type === 'credit_card') {
+                        setEditTx((p) => ({ ...p, creditCardId: parseInt(id), accountId: null }));
+                      }
+                    }}
                     className="w-full"
                   >
-                    <option value="">Selecione</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
+                    <option value="">Nenhum (só pendente)</option>
+                    {combinedSources.map((s) => (
+                      <option key={`${s.sourceType}-${s.id}`} value={`${s.sourceType}-${s.id}`}>
+                        {s.sourceType === 'account' ? 'Conta' : 'Cartão'}: {s.name}
                       </option>
                     ))}
                   </select>
@@ -8805,7 +9982,7 @@ export default function Transactions() {
                     </label>
                     <select
                       className="w-full"
-                      value={editTx.categoryId || ''}
+                      value={editTx.categoryId ?? ''}
                       onChange={(e) =>
                         setEditTx((p) => ({
                           ...p,
@@ -8834,7 +10011,7 @@ export default function Transactions() {
                     </label>
                     <select
                       className="w-full"
-                      value={editTx.destAccountId || ''}
+                      value={editTx.destAccountId ?? ''}
                       onChange={(e) =>
                         setEditTx((p) => ({
                           ...p,
@@ -8855,47 +10032,60 @@ export default function Transactions() {
                 )}
               </div>
 
-              {/* Parcelas para cartão de crédito */}
+              {/* Parcelas para cartão de crédito - mantido, mas agora usando accountId ou creditCardId */}
               {editTx.type === 'expense' &&
-                accounts.find((a) => a.id === editTx.accountId)?.type === 'credit' && (
-                  <div
-                    className="flex items-center gap-3 p-3 rounded-lg"
-                    style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
-                  >
-                    <div className="flex flex-col gap-1 flex-1">
-                      <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                        Parcelas
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={24}
-                        value={installments}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value) || 1;
-                          setInstallments(val);
-                          setEditTx((p) => ({
-                            ...p,
-                            installment_total: val,
-                            installment_current: 1,
-                          }));
+                (() => {
+                  const isCreditAccount =
+                    editTx.accountId &&
+                    accounts.find((a) => a.id === editTx.accountId)?.type === 'credit';
+                  const isCreditCard = !!editTx.creditCardId;
+                  return (
+                    (isCreditAccount || isCreditCard) && (
+                      <div
+                        className="flex items-center gap-3 p-3 rounded-lg"
+                        style={{
+                          background: 'var(--secondary)',
+                          border: '1px solid var(--border)',
                         }}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1 flex-1">
-                      <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                        Valor por parcela
-                      </label>
-                      <p
-                        className="text-sm mono font-semibold mt-2"
-                        style={{ color: 'var(--primary)' }}
                       >
-                        {installments > 1 ? formatBRL((editTx.amount || 0) / installments) : '—'}
-                      </p>
-                    </div>
-                  </div>
-                )}
+                        <div className="flex flex-col gap-1 flex-1">
+                          <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                            Parcelas
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            max={24}
+                            value={installments}
+                            onChange={(e) => {
+                              const val = parseInt(e.target.value) || 1;
+                              setInstallments(val);
+                              setEditTx((p) => ({
+                                ...p,
+                                installment_total: val,
+                                installment_current: 1,
+                              }));
+                            }}
+                            className="w-full"
+                          />
+                        </div>
+                        <div className="flex flex-col gap-1 flex-1">
+                          <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                            Valor por parcela
+                          </label>
+                          <p
+                            className="text-sm mono font-semibold mt-2"
+                            style={{ color: 'var(--primary)' }}
+                          >
+                            {installments > 1
+                              ? formatBRL((editTx.amount || 0) / installments)
+                              : '—'}
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  );
+                })()}
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
@@ -8912,10 +10102,15 @@ export default function Transactions() {
                     }
                     className="w-full"
                   >
-                    <option value="confirmed">Confirmada</option>
                     <option value="pending">Pendente</option>
+                    <option value="confirmed">Confirmada</option>
                     <option value="cancelled">Cancelada</option>
                   </select>
+                  {editTx.status !== 'pending' && !editTx.accountId && !editTx.creditCardId && (
+                    <p className="text-xs text-danger mt-1" style={{ color: 'var(--danger)' }}>
+                      Para confirmar ou cancelar, selecione uma conta ou cartão.
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
@@ -9494,6 +10689,54 @@ export const categoryService = {
 
 
 --------------------------------------------------------------------------------
+ARQUIVO: frontend\src\services\creditCardService.ts
+--------------------------------------------------------------------------------
+import { api } from './api';
+
+export interface CreditCard {
+  id: number;
+  user_id: number;
+  name: string;
+  institution: string;
+  limit_amount: number;
+  closing_day: number;
+  due_day: number;
+  color: string;
+  icon: string;
+  status: 'active' | 'inactive';
+  current_balance?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export const creditCardService = {
+  async getAll(token: string, onlyActive?: boolean): Promise<CreditCard[]> {
+    const url = onlyActive ? '/credit-cards?onlyActive=true' : '/credit-cards';
+    return api.get<CreditCard[]>(url, token);
+  },
+
+  async getOne(id: number, token: string): Promise<CreditCard> {
+    return api.get<CreditCard>(`/credit-cards/${id}`, token);
+  },
+
+  async create(
+    data: Omit<CreditCard, 'id' | 'user_id' | 'created_at' | 'updated_at' | 'current_balance'>,
+    token: string
+  ): Promise<CreditCard> {
+    return api.post<CreditCard>('/credit-cards', data, token);
+  },
+
+  async update(id: number, data: Partial<CreditCard>, token: string): Promise<CreditCard> {
+    return api.put<CreditCard>(`/credit-cards/${id}`, data, token);
+  },
+
+  async delete(id: number, token: string): Promise<{ message: string }> {
+    return api.delete<{ message: string }>(`/credit-cards/${id}`, token);
+  },
+};
+
+
+--------------------------------------------------------------------------------
 ARQUIVO: frontend\src\services\goalService.ts
 --------------------------------------------------------------------------------
 import { api } from './api';
@@ -9520,7 +10763,8 @@ import { api } from './api';
 export interface Installment {
   id: number;
   user_id: number;
-  account_id: number;
+  account_id?: number | null;
+  credit_card_id?: number | null;
   category_id?: number | null;
   description: string;
   total_amount: number;
@@ -9563,6 +10807,18 @@ export const installmentService = {
   ): Promise<{ message: string }> {
     return api.patch<{ message: string }>(
       `/installments/${installmentId}/pay/${installmentNumber}`,
+      undefined,
+      token
+    );
+  },
+
+  async unpayInstallment(
+    installmentId: number,
+    installmentNumber: number,
+    token: string
+  ): Promise<{ message: string }> {
+    return api.patch<{ message: string }>(
+      `/installments/${installmentId}/unpay/${installmentNumber}`,
       undefined,
       token
     );

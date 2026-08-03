@@ -7,12 +7,13 @@ export const installmentController = {
   async getAll(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
-      const { status, startDate, endDate, accountId } = req.query;
+      const { status, startDate, endDate, accountId, creditCardId } = req.query;
       const filters: any = {};
       if (status) filters.status = String(status);
       if (startDate) filters.startDate = String(startDate);
       if (endDate) filters.endDate = String(endDate);
       if (accountId) filters.accountId = Number(accountId);
+      if (creditCardId) filters.creditCardId = Number(creditCardId);
 
       const installments = Installment.findByUser(userId, filters);
       const result = installments.map((inst) => {
@@ -62,19 +63,31 @@ export const installmentController = {
   async create(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
-      const { account_id, category_id, description, total_amount, installment_count, start_date } =
-        req.body;
+      const {
+        account_id,
+        credit_card_id,
+        category_id,
+        description,
+        total_amount,
+        installment_count,
+        start_date,
+      } = req.body;
 
-      if (!account_id || !description || !total_amount || !installment_count || !start_date) {
+      if (!description || !total_amount || !installment_count || !start_date) {
         return res.status(400).json({
-          error:
-            'Campos obrigatórios: account_id, description, total_amount, installment_count, start_date',
+          error: 'Campos obrigatórios: description, total_amount, installment_count, start_date',
+        });
+      }
+      if (!account_id && !credit_card_id) {
+        return res.status(400).json({
+          error: 'É necessário fornecer account_id ou credit_card_id',
         });
       }
 
       const id = Installment.create({
         user_id: userId,
-        account_id,
+        account_id: account_id || null,
+        credit_card_id: credit_card_id || null,
         category_id: category_id || null,
         description,
         total_amount,
@@ -108,6 +121,7 @@ export const installmentController = {
 
       const {
         account_id,
+        credit_card_id,
         category_id,
         description,
         total_amount,
@@ -117,7 +131,8 @@ export const installmentController = {
       } = req.body;
 
       const updateData: any = {};
-      if (account_id !== undefined) updateData.account_id = account_id;
+      if (account_id !== undefined) updateData.account_id = account_id || null;
+      if (credit_card_id !== undefined) updateData.credit_card_id = credit_card_id || null;
       if (category_id !== undefined) updateData.category_id = category_id || null;
       if (description !== undefined) updateData.description = description;
       if (total_amount !== undefined) updateData.total_amount = total_amount;
@@ -188,6 +203,23 @@ export const installmentController = {
     } catch (error: any) {
       console.error('Erro ao pagar parcela:', error);
       res.status(500).json({ error: error.message || 'Erro ao pagar parcela' });
+    }
+  },
+
+  async unpayInstallment(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user!.id;
+      const installmentId = parseInt(String(req.params.id));
+      const installmentNumber = parseInt(String(req.params.number));
+      if (isNaN(installmentId) || isNaN(installmentNumber)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      Installment.unpayInstallment(installmentId, installmentNumber, userId);
+      res.json({ message: 'Pagamento desfeito com sucesso' });
+    } catch (error: any) {
+      console.error('Erro ao desfazer pagamento:', error);
+      res.status(500).json({ error: error.message || 'Erro ao desfazer pagamento' });
     }
   },
 };

@@ -18,6 +18,7 @@ import {
   Lock,
   Plus,
   CreditCard,
+  CreditCardIcon,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -26,6 +27,7 @@ export type Page =
   | 'transactions'
   | 'installments'
   | 'accounts'
+  | 'credit-cards'
   | 'categories'
   | 'tags'
   | 'budgets'
@@ -46,6 +48,7 @@ const nav = [
   { id: 'transactions', label: 'Extrato', Icon: ListOrdered },
   { id: 'installments', label: 'Parcelamentos', Icon: CreditCard },
   { id: 'accounts', label: 'Contas', Icon: Wallet },
+  { id: 'credit-cards', label: 'Cartões', Icon: CreditCardIcon },
   { id: 'categories', label: 'Categorias', Icon: Tag },
   { id: 'tags', label: 'Etiquetas', Icon: Bookmark },
   { id: 'budgets', label: 'Orçamentos', Icon: BarChart3 },

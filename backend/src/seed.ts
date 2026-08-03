@@ -3,7 +3,6 @@ import bcrypt from 'bcrypt';
 
 export function seed() {
   try {
-    // Verificar se já existem usuários
     const count = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
     if (count.count > 0) {
       console.log('Banco já possui dados. Pulando seed.');
@@ -12,7 +11,7 @@ export function seed() {
 
     console.log('Inserindo dados iniciais...');
 
-    // 1. Criar usuário
+    // 1. Usuário
     const password = 'Jose2569*';
     const hash = bcrypt.hashSync(password, 12);
     const stmt = db.prepare(`
@@ -28,7 +27,7 @@ export function seed() {
     );
     const userId = info.lastInsertRowid as number;
 
-    // 2. Criar contas padrão
+    // 2. Contas
     const accounts = [
       {
         name: 'Nubank',
@@ -37,36 +36,6 @@ export function seed() {
         color: '#8b5cf6',
         institution: 'Nubank',
         icon: 'Wallet',
-        status: 'active',
-      },
-      {
-        name: 'Bradesco CC',
-        type: 'checking',
-        balance: 12450.0,
-        color: '#ef4444',
-        institution: 'Bradesco',
-        icon: 'Building2',
-        status: 'active',
-      },
-      {
-        name: 'Poupança Bradesco',
-        type: 'savings',
-        balance: 8900.0,
-        color: '#3b82f6',
-        institution: 'Bradesco',
-        icon: 'PiggyBank',
-        status: 'active',
-      },
-      {
-        name: 'Cartão Inter',
-        type: 'credit',
-        balance: -3420.0,
-        color: '#f97316',
-        institution: 'Banco Inter',
-        icon: 'CreditCard',
-        limit_amount: 8000,
-        closing_day: 15,
-        due_day: 22,
         status: 'active',
       },
       {
@@ -81,8 +50,8 @@ export function seed() {
     ];
 
     const accStmt = db.prepare(`
-      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, limit_amount, closing_day, due_day, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const initTxStmt = db.prepare(`
@@ -99,10 +68,7 @@ export function seed() {
         acc.color,
         acc.institution,
         acc.icon,
-        acc.limit_amount || null,
-        acc.closing_day || null,
-        acc.due_day || null,
-        acc.status || 'active'
+        acc.status
       );
       const accountId = info.lastInsertRowid as number;
       if (acc.balance !== 0) {
@@ -110,7 +76,24 @@ export function seed() {
       }
     }
 
-    // 3. Categorias padrão
+    // 3. Cartão de crédito
+    const cardStmt = db.prepare(`
+      INSERT INTO credit_cards (user_id, name, institution, limit_amount, closing_day, due_day, color, icon, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    cardStmt.run(
+      userId,
+      'Cartão Inter',
+      'Banco Inter',
+      8000,
+      15,
+      22,
+      '#f97316',
+      'CreditCard',
+      'active'
+    );
+
+    // 4. Categorias padrão
     const categories = [
       { name: 'Moradia', type: 'expense', color: '#6366f1', icon: 'Home' },
       { name: 'Alimentação', type: 'expense', color: '#f59e0b', icon: 'UtensilsCrossed' },
@@ -161,7 +144,7 @@ export function seed() {
       }
     }
 
-    // 4. Tags padrão
+    // Tags padrão
     const tags = [
       { name: 'Fixo', color: '#6366f1', description: 'Despesas fixas mensais' },
       { name: 'Parcelado', color: '#f59e0b', description: 'Compras parceladas' },

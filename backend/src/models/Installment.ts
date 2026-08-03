@@ -3,12 +3,13 @@ import db from '../config/database';
 export interface IInstallment {
   id?: number;
   user_id: number;
-  account_id: number;
+  account_id?: number | null;
+  credit_card_id?: number | null;
   category_id?: number | null;
   description: string;
   total_amount: number;
   installment_count: number;
-  start_date: string; // YYYY-MM-DD
+  start_date: string;
   status: 'active' | 'completed' | 'canceled';
   created_at?: string;
   updated_at?: string;
@@ -17,12 +18,13 @@ export interface IInstallment {
 export class Installment {
   static create(data: Omit<IInstallment, 'id' | 'created_at' | 'updated_at'>): number {
     const stmt = db.prepare(`
-      INSERT INTO installments (user_id, account_id, category_id, description, total_amount, installment_count, start_date, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO installments (user_id, account_id, credit_card_id, category_id, description, total_amount, installment_count, start_date, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       data.user_id,
-      data.account_id,
+      data.account_id || null,
+      data.credit_card_id || null,
       data.category_id || null,
       data.description,
       data.total_amount,
@@ -40,7 +42,13 @@ export class Installment {
 
   static findByUser(
     userId: number,
-    filters?: { status?: string; startDate?: string; endDate?: string; accountId?: number }
+    filters?: {
+      status?: string;
+      startDate?: string;
+      endDate?: string;
+      accountId?: number;
+      creditCardId?: number;
+    }
   ): IInstallment[] {
     let sql = 'SELECT * FROM installments WHERE user_id = ?';
     const params: any[] = [userId];
@@ -59,6 +67,10 @@ export class Installment {
     if (filters?.accountId) {
       sql += ' AND account_id = ?';
       params.push(filters.accountId);
+    }
+    if (filters?.creditCardId) {
+      sql += ' AND credit_card_id = ?';
+      params.push(filters.creditCardId);
     }
     sql += ' ORDER BY start_date DESC, id DESC';
     const stmt = db.prepare(sql);
@@ -83,7 +95,6 @@ export class Installment {
   }
 
   static delete(id: number, userId: number): void {
-    // CORRIGIDO: usar aspas simples para o valor literal 'confirmed'
     const stmt = db.prepare(
       "SELECT COUNT(*) as count FROM transactions WHERE installment_id = ? AND user_id = ? AND status = 'confirmed'"
     );
@@ -95,7 +106,6 @@ export class Installment {
     delStmt.run(id, userId);
   }
 
-  // Gera as transações para o parcelamento
   static generateTransactions(installmentId: number, userId: number): void {
     const installment = this.findById(installmentId, userId);
     if (!installment) throw new Error('Parcelamento não encontrado');
@@ -108,15 +118,14 @@ export class Installment {
 
     const txnStmt = db.prepare(`
       INSERT INTO transactions (
-        user_id, account_id, category_id, type, amount, description, date, status,
+        user_id, account_id, credit_card_id, category_id, type, amount, description, date, status,
         installment_id, installment_number, installment_total, installment_current
-      ) VALUES (?, ?, ?, 'expense', ?, ?, ?, 'pending', ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, 'expense', ?, ?, ?, 'pending', ?, ?, ?, ?)
     `);
 
     const insertTxn = db.transaction(() => {
       for (let i = 0; i < installment.installment_count; i++) {
         let currentDate = new Date(year, month + i, day);
-        // Ajusta para o último dia do mês se o dia não existir
         const targetMonth = (month + i) % 12;
         const targetYear = year + Math.floor((month + i) / 12);
         const lastDay = new Date(targetYear, targetMonth + 1, 0).getDate();
@@ -128,7 +137,8 @@ export class Installment {
           installment.description + ` (${i + 1}/${installment.installment_count})`;
         txnStmt.run(
           userId,
-          installment.account_id,
+          installment.account_id || null,
+          installment.credit_card_id || null,
           installment.category_id || null,
           amountPerInstallment,
           description,
@@ -143,7 +153,6 @@ export class Installment {
     insertTxn();
   }
 
-  // Atualiza status do parcelamento baseado nas parcelas pagas
   static updateStatus(installmentId: number, userId: number): void {
     const stmt = db.prepare(`
       SELECT COUNT(*) as total, SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as paid
@@ -155,7 +164,6 @@ export class Installment {
     }
   }
 
-  // Marca uma parcela como paga
   static payInstallment(installmentId: number, installmentNumber: number, userId: number): void {
     const txnStmt = db.prepare(`
       UPDATE transactions SET status = 'confirmed', updated_at = CURRENT_TIMESTAMP
@@ -168,14 +176,33 @@ export class Installment {
     this.updateStatus(installmentId, userId);
   }
 
-  // Cancela parcelamento (parcelas pendentes viram canceladas)
+  static unpayInstallment(installmentId: number, installmentNumber: number, userId: number): void {
+    const txnStmt = db.prepare(`
+      UPDATE transactions SET status = 'pending', updated_at = CURRENT_TIMESTAMP
+      WHERE installment_id = ? AND installment_number = ? AND user_id = ? AND status = 'confirmed'
+    `);
+    const info = txnStmt.run(installmentId, installmentNumber, userId);
+    if (info.changes === 0) {
+      throw new Error('Parcela não encontrada ou não está paga');
+    }
+    const stmt = db.prepare(`
+      SELECT COUNT(*) as total, SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as paid
+      FROM transactions WHERE installment_id = ? AND user_id = ?
+    `);
+    const row = stmt.get(installmentId, userId) as { total: number; paid: number };
+    if (row.paid === 0) {
+      this.update(installmentId, userId, { status: 'active' });
+    } else {
+      this.update(installmentId, userId, { status: 'active' });
+    }
+  }
+
   static cancelInstallment(installmentId: number, userId: number): void {
     const txnStmt = db.prepare(`
       UPDATE transactions SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
       WHERE installment_id = ? AND user_id = ? AND status = 'pending'
     `);
     txnStmt.run(installmentId, userId);
-    // Se não houver parcelas pagas, muda status para canceled, senão mantém active
     const stmt = db.prepare(`
       SELECT COUNT(*) as total, SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) as paid
       FROM transactions WHERE installment_id = ? AND user_id = ?

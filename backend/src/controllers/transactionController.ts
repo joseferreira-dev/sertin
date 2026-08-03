@@ -70,6 +70,7 @@ export const transactionController = {
       const userId = req.user!.id;
       const {
         account_id,
+        credit_card_id,
         category_id,
         dest_account_id,
         type,
@@ -85,18 +86,25 @@ export const transactionController = {
         tagIds,
       } = req.body;
 
-      if (!account_id || !type || !amount || !description || !date) {
+      if (!type || amount === undefined || !description || !date) {
         return res
           .status(400)
-          .json({ error: 'Campos obrigatórios: account_id, type, amount, description, date' });
+          .json({ error: 'Campos obrigatórios: type, amount, description, date' });
       }
 
       const validatedType = validateType(type);
-      const validatedStatus = validateStatus(status);
+      const validatedStatus = validateStatus(status || 'pending');
+
+      if (validatedStatus !== 'pending' && !account_id && !credit_card_id) {
+        return res.status(400).json({
+          error: 'Transações confirmadas ou canceladas devem ter uma conta ou cartão vinculado.',
+        });
+      }
 
       const id = Transaction.create({
         user_id: userId,
-        account_id,
+        account_id: account_id || null,
+        credit_card_id: credit_card_id || null,
         category_id: category_id || null,
         dest_account_id: dest_account_id || null,
         type: validatedType,
@@ -115,9 +123,11 @@ export const transactionController = {
         Transaction.setTags(id, tagIds);
       }
 
-      Transaction.updateAccountBalance(account_id, userId);
-      if (validatedType === 'transfer' && dest_account_id) {
-        Transaction.updateAccountBalance(dest_account_id, userId);
+      if (account_id && validatedStatus === 'confirmed') {
+        Transaction.updateAccountBalance(account_id, userId);
+        if (validatedType === 'transfer' && dest_account_id) {
+          Transaction.updateAccountBalance(dest_account_id, userId);
+        }
       }
 
       const newTransaction = Transaction.findById(id, userId);
@@ -142,15 +152,21 @@ export const transactionController = {
         return res.status(404).json({ error: 'Transação não encontrada' });
       }
 
+      // Se for parcela, permitir apenas alterar status e data
       if (existing.installment_id) {
-        return res.status(403).json({
-          error:
-            'Não é possível editar uma parcela individualmente. Gerencie o parcelamento completo.',
-        });
+        const allowedFields = ['status', 'date'];
+        const requestedFields = Object.keys(req.body);
+        const hasOnlyAllowed = requestedFields.every((f) => allowedFields.includes(f));
+        if (!hasOnlyAllowed) {
+          return res.status(403).json({
+            error: 'Para parcelas, só é permitido alterar status (para desfazer pagamento) e data.',
+          });
+        }
       }
 
       const {
         account_id,
+        credit_card_id,
         category_id,
         dest_account_id,
         type,
@@ -169,16 +185,29 @@ export const transactionController = {
       const oldAccountId = existing.account_id;
       const oldDestAccountId = existing.dest_account_id;
       const oldType = existing.type;
+      const newStatus = status ? validateStatus(status) : existing.status;
+
+      if (newStatus !== 'pending') {
+        const newAccountId = account_id !== undefined ? account_id : existing.account_id;
+        const newCreditCardId =
+          credit_card_id !== undefined ? credit_card_id : existing.credit_card_id;
+        if (!newAccountId && !newCreditCardId) {
+          return res.status(400).json({
+            error: 'Transações confirmadas ou canceladas devem ter uma conta ou cartão vinculado.',
+          });
+        }
+      }
 
       const updateData: any = {};
-      if (account_id !== undefined) updateData.account_id = account_id;
+      if (account_id !== undefined) updateData.account_id = account_id || null;
+      if (credit_card_id !== undefined) updateData.credit_card_id = credit_card_id || null;
       if (category_id !== undefined) updateData.category_id = category_id || null;
       if (dest_account_id !== undefined) updateData.dest_account_id = dest_account_id || null;
       if (type !== undefined) updateData.type = validateType(type);
       if (amount !== undefined) updateData.amount = amount;
       if (description !== undefined) updateData.description = description;
       if (date !== undefined) updateData.date = date;
-      if (status !== undefined) updateData.status = validateStatus(status);
+      if (status !== undefined) updateData.status = newStatus;
       if (installment_total !== undefined) updateData.installment_total = installment_total;
       if (installment_current !== undefined) updateData.installment_current = installment_current;
       if (recurring_id !== undefined) updateData.recurring_id = recurring_id || null;
@@ -191,15 +220,17 @@ export const transactionController = {
         Transaction.setTags(id, tagIds);
       }
 
-      const newAccountId = updateData.account_id ?? oldAccountId;
-      const newDestAccountId = updateData.dest_account_id ?? oldDestAccountId;
-      const newType = updateData.type ?? oldType;
+      const finalAccountId = updateData.account_id ?? oldAccountId;
+      const finalDestAccountId = updateData.dest_account_id ?? oldDestAccountId;
+      const finalType = updateData.type ?? oldType;
+      const finalStatus = updateData.status ?? existing.status;
 
       const accountsToUpdate = new Set<number>();
       if (oldAccountId) accountsToUpdate.add(oldAccountId);
-      if (newAccountId) accountsToUpdate.add(newAccountId);
+      if (finalAccountId && finalStatus === 'confirmed') accountsToUpdate.add(finalAccountId);
       if (oldType === 'transfer' && oldDestAccountId) accountsToUpdate.add(oldDestAccountId);
-      if (newType === 'transfer' && newDestAccountId) accountsToUpdate.add(newDestAccountId);
+      if (finalType === 'transfer' && finalDestAccountId && finalStatus === 'confirmed')
+        accountsToUpdate.add(finalDestAccountId);
 
       for (const accId of accountsToUpdate) {
         Transaction.updateAccountBalance(accId, userId);
@@ -241,9 +272,11 @@ export const transactionController = {
       Transaction.setTags(id, []);
       Transaction.delete(id, userId);
 
-      Transaction.updateAccountBalance(accountId, userId);
-      if (type === 'transfer' && destAccountId) {
-        Transaction.updateAccountBalance(destAccountId, userId);
+      if (accountId) {
+        Transaction.updateAccountBalance(accountId, userId);
+        if (type === 'transfer' && destAccountId) {
+          Transaction.updateAccountBalance(destAccountId, userId);
+        }
       }
 
       res.json({ message: 'Transação excluída com sucesso' });

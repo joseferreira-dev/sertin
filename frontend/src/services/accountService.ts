@@ -4,14 +4,11 @@ export interface Account {
   id: number;
   user_id: number;
   name: string;
-  type: 'checking' | 'savings' | 'cash' | 'credit' | 'digital';
+  type: 'checking' | 'savings' | 'cash' | 'digital';
   balance: number;
   color: string;
   institution: string;
   icon: string;
-  limit_amount?: number;
-  closing_day?: number;
-  due_day?: number;
   status: 'active' | 'inactive';
   created_at: string;
   updated_at: string;
@@ -27,7 +24,10 @@ export const accountService = {
     return api.get<Account>(`/accounts/${id}`, token);
   },
 
-  async create(data: Omit<Account, 'id' | 'user_id' | 'created_at' | 'updated_at'>, token: string): Promise<Account> {
+  async create(
+    data: Omit<Account, 'id' | 'user_id' | 'created_at' | 'updated_at'>,
+    token: string
+  ): Promise<Account> {
     return api.post<Account>('/accounts', data, token);
   },
 
@@ -39,7 +39,12 @@ export const accountService = {
     return api.delete<{ message: string }>(`/accounts/${id}`, token);
   },
 
-  async getNetWorth(token: string): Promise<{ assets: number; liabilities: number; netWorth: number }> {
-    return api.get<{ assets: number; liabilities: number; netWorth: number }>('/accounts/net-worth', token);
-  }
+  async getNetWorth(
+    token: string
+  ): Promise<{ assets: number; liabilities: number; netWorth: number }> {
+    return api.get<{ assets: number; liabilities: number; netWorth: number }>(
+      '/accounts/net-worth',
+      token
+    );
+  },
 };

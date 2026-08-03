@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, JSX } from 'react';
 import {
   Plus,
   X,
@@ -9,10 +9,12 @@ import {
   AlertCircle,
   Calendar,
   DollarSign,
+  Undo,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { installmentService, Installment } from '../services/installmentService';
 import { accountService, Account } from '../services/accountService';
+import { creditCardService, CreditCard } from '../services/creditCardService';
 import { categoryService, Category } from '../services/categoryService';
 import { formatBRL } from '../data/mock';
 
@@ -41,19 +43,30 @@ export default function Installments() {
     (Installment & { transactions?: any[] }) | null
   >(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
 
-  // Form state
   const [form, setForm] = useState({
     account_id: '',
+    credit_card_id: '',
     category_id: '',
     description: '',
     total_amount: '',
     installment_count: '1',
     start_date: new Date().toISOString().slice(0, 10),
   });
+
+  const combinedSources = [
+    ...accounts.map((a) => ({ ...a, sourceType: 'account' as const })),
+    ...creditCards.map((c) => ({
+      ...c,
+      sourceType: 'credit_card' as const,
+      name: c.name,
+      id: c.id,
+    })),
+  ];
 
   const loadData = async () => {
     if (!token) return;
@@ -63,12 +76,14 @@ export default function Installments() {
       if (filterStatus !== 'all') {
         filters.status = filterStatus;
       }
-      const [accs, cats, insts] = await Promise.all([
+      const [accs, cards, cats, insts] = await Promise.all([
         accountService.getAll(token, false),
+        creditCardService.getAll(token),
         categoryService.getAll(token),
         installmentService.getAll(token, filters),
       ]);
       setAccounts(accs);
+      setCreditCards(cards);
       setCategories(cats);
       setInstallments(insts);
     } catch (err: any) {
@@ -84,7 +99,8 @@ export default function Installments() {
 
   const openNew = () => {
     setForm({
-      account_id: accounts.length > 0 ? String(accounts[0].id) : '',
+      account_id: '',
+      credit_card_id: '',
       category_id: '',
       description: '',
       total_amount: '',
@@ -97,7 +113,8 @@ export default function Installments() {
 
   const openEdit = (inst: Installment) => {
     setForm({
-      account_id: String(inst.account_id),
+      account_id: String(inst.account_id || ''),
+      credit_card_id: String(inst.credit_card_id || ''),
       category_id: String(inst.category_id || ''),
       description: inst.description,
       total_amount: String(inst.total_amount),
@@ -111,14 +128,24 @@ export default function Installments() {
   const save = async () => {
     if (!token) return;
     try {
-      const payload = {
-        account_id: parseInt(form.account_id),
-        category_id: form.category_id ? parseInt(form.category_id) : null,
+      const payload: any = {
         description: form.description,
         total_amount: parseFloat(form.total_amount),
         installment_count: parseInt(form.installment_count),
         start_date: form.start_date,
+        category_id: form.category_id ? parseInt(form.category_id) : null,
       };
+      if (form.account_id) {
+        payload.account_id = parseInt(form.account_id);
+        payload.credit_card_id = null;
+      } else if (form.credit_card_id) {
+        payload.credit_card_id = parseInt(form.credit_card_id);
+        payload.account_id = null;
+      } else {
+        alert('Selecione uma conta ou cartão de crédito.');
+        return;
+      }
+
       if (editingId) {
         await installmentService.update(editingId, payload, token);
       } else {
@@ -166,6 +193,20 @@ export default function Installments() {
     }
   };
 
+  const unpayInstallment = async (installmentId: number, number: number) => {
+    if (!token) return;
+    try {
+      await installmentService.unpayInstallment(installmentId, number, token);
+      await loadData();
+      if (detailInstallment) {
+        const updated = await installmentService.getOne(installmentId, token);
+        setDetailInstallment(updated);
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
   const filtered = installments.filter((inst) =>
     inst.description.toLowerCase().includes(search.toLowerCase())
   );
@@ -185,6 +226,24 @@ export default function Installments() {
       </div>
     );
   }
+
+  // Função para renderizar categorias com subcategorias
+  const renderCategoryOptions = (cats: Category[], depth = 0) => {
+    let options: JSX.Element[] = [];
+    for (const cat of cats) {
+      const indent = '  '.repeat(depth);
+      options.push(
+        <option key={cat.id} value={cat.id}>
+          {indent}
+          {cat.name}
+        </option>
+      );
+      if (cat.children && cat.children.length > 0) {
+        options = options.concat(renderCategoryOptions(cat.children, depth + 1));
+      }
+    }
+    return options;
+  };
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -256,7 +315,11 @@ export default function Installments() {
                       {statusLabels[inst.status as InstallmentStatus]}
                     </span>
                     <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                      {accounts.find((a) => a.id === inst.account_id)?.name || 'Conta'}
+                      {inst.account_id
+                        ? accounts.find((a) => a.id === inst.account_id)?.name || 'Conta'
+                        : inst.credit_card_id
+                          ? creditCards.find((c) => c.id === inst.credit_card_id)?.name || 'Cartão'
+                          : 'N/A'}
                     </span>
                   </div>
                 </div>
@@ -406,17 +469,29 @@ export default function Installments() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    Conta *
+                    Conta/Cartão *
                   </label>
                   <select
-                    value={form.account_id}
-                    onChange={(e) => setForm((p) => ({ ...p, account_id: e.target.value }))}
+                    value={form.account_id || form.credit_card_id || ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!val) {
+                        setForm((p) => ({ ...p, account_id: '', credit_card_id: '' }));
+                        return;
+                      }
+                      const [type, id] = val.split('-');
+                      if (type === 'account') {
+                        setForm((p) => ({ ...p, account_id: id, credit_card_id: '' }));
+                      } else if (type === 'credit_card') {
+                        setForm((p) => ({ ...p, credit_card_id: id, account_id: '' }));
+                      }
+                    }}
                     className="w-full"
                   >
                     <option value="">Selecione</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
+                    {combinedSources.map((s) => (
+                      <option key={`${s.sourceType}-${s.id}`} value={`${s.sourceType}-${s.id}`}>
+                        {s.sourceType === 'account' ? 'Conta' : 'Cartão'}: {s.name}
                       </option>
                     ))}
                   </select>
@@ -433,10 +508,15 @@ export default function Installments() {
                     <option value="">Sem categoria</option>
                     {categories
                       .filter((c) => c.type === 'expense')
-                      .map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
+                      .map((cat) => (
+                        <optgroup key={cat.id} label={cat.name}>
+                          <option value={cat.id}>{cat.name}</option>
+                          {cat.children?.map((sub) => (
+                            <option key={sub.id} value={sub.id}>
+                              {sub.name}
+                            </option>
+                          ))}
+                        </optgroup>
                       ))}
                   </select>
                 </div>
@@ -554,6 +634,17 @@ export default function Installments() {
                           style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--primary)' }}
                         >
                           <Check size={12} /> Pagar
+                        </button>
+                      )}
+                      {txn.status === 'confirmed' && (
+                        <button
+                          onClick={() =>
+                            unpayInstallment(detailInstallment.id, txn.installment_number)
+                          }
+                          className="px-2 py-1 rounded text-xs font-medium transition-opacity hover:opacity-80"
+                          style={{ background: 'rgba(239,68,68,0.15)', color: 'var(--danger)' }}
+                        >
+                          <Undo size={12} /> Desfazer
                         </button>
                       )}
                     </div>

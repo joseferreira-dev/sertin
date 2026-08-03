@@ -15,6 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { formatBRL } from '../data/mock';
 import { transactionService, Transaction as TransactionType } from '../services/transactionService';
 import { accountService, Account } from '../services/accountService';
+import { creditCardService, CreditCard } from '../services/creditCardService';
 import { categoryService, Category } from '../services/categoryService';
 import { tagService, Tag } from '../services/tagService';
 
@@ -27,7 +28,8 @@ interface TransactionForm {
   date: string;
   description: string;
   amount: number;
-  accountId: number;
+  accountId?: number | null;
+  creditCardId?: number | null;
   categoryId?: number | null;
   destAccountId?: number | null;
   status: 'pending' | 'confirmed' | 'cancelled';
@@ -41,9 +43,10 @@ const emptyTx: TransactionForm = {
   date: new Date().toISOString().slice(0, 10),
   description: '',
   amount: 0,
-  accountId: 0,
+  accountId: null,
+  creditCardId: null,
   categoryId: null,
-  status: 'confirmed',
+  status: 'pending',
   tagIds: [],
   installment_total: 1,
   installment_current: 1,
@@ -54,6 +57,7 @@ export default function Transactions() {
   const [txs, setTxs] = useState<TransactionWithTags[]>([]);
   const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [showModal, setShowModal] = useState(false);
@@ -80,14 +84,16 @@ export default function Transactions() {
       const startDate = new Date(year, month - 1, 1).toISOString().slice(0, 10);
       const endDate = new Date(year, month, 0).toISOString().slice(0, 10);
 
-      const [txns, accs, cats, tags] = await Promise.all([
+      const [txns, accs, cards, cats, tags] = await Promise.all([
         transactionService.getAll(token, { limit: 200, startDate, endDate }),
         accountService.getAll(token, false),
+        creditCardService.getAll(token),
         categoryService.getAll(token),
         tagService.getAll(token),
       ]);
       setTxs(txns);
       setAccounts(accs);
+      setCreditCards(cards);
       setCategories(cats);
       setAvailableTags(tags);
     } catch (err) {
@@ -115,11 +121,12 @@ export default function Transactions() {
     .reduce((s, t) => s + Math.abs(t.amount), 0);
 
   const openNew = () => {
-    const defaultAccountId = accounts.length > 0 ? accounts[0].id : 0;
     setEditTx({
       ...emptyTx,
       date: new Date().toISOString().slice(0, 10),
-      accountId: defaultAccountId,
+      accountId: null,
+      creditCardId: null,
+      status: 'pending',
     });
     setEditingId(null);
     setInstallments(1);
@@ -132,7 +139,8 @@ export default function Transactions() {
       date: tx.date,
       description: tx.description,
       amount: Math.abs(tx.amount),
-      accountId: tx.account_id,
+      accountId: tx.account_id ?? null,
+      creditCardId: (tx as any).credit_card_id ?? null,
       categoryId: tx.category_id ?? null,
       destAccountId: tx.dest_account_id ?? null,
       status: tx.status || 'confirmed',
@@ -145,11 +153,28 @@ export default function Transactions() {
     setShowModal(true);
   };
 
+  const combinedSources = [
+    ...accounts.map((a) => ({ ...a, sourceType: 'account' as const })),
+    ...creditCards.map((c) => ({
+      ...c,
+      sourceType: 'credit_card' as const,
+      name: c.name,
+      id: c.id,
+    })),
+  ];
+
   const save = async () => {
     if (!token) return;
+
+    if (editTx.status !== 'pending' && !editTx.accountId && !editTx.creditCardId) {
+      alert('Transações confirmadas ou canceladas devem ter uma conta ou cartão vinculado.');
+      return;
+    }
+
     try {
       const payload: any = {
-        account_id: editTx.accountId,
+        account_id: editTx.accountId || null,
+        credit_card_id: editTx.creditCardId || null,
         category_id: editTx.categoryId || null,
         dest_account_id: editTx.destAccountId || null,
         type: editTx.type,
@@ -203,7 +228,7 @@ export default function Transactions() {
     return found ? found.name : `ID ${id}`;
   };
 
-  const getAccountName = (id?: number) => {
+  const getAccountName = (id?: number | null) => {
     if (!id) return '—';
     const found = accounts.find((a) => a.id === id);
     return found ? found.name : `ID ${id}`;
@@ -313,17 +338,17 @@ export default function Transactions() {
                     className="text-xs mb-1 block"
                     style={{ color: 'var(--muted-foreground)' }}
                   >
-                    Conta
+                    Conta/Cartão
                   </label>
                   <select
                     className="w-full text-xs py-1.5"
                     value={filterAccount}
                     onChange={(e) => setFilterAccount(e.target.value)}
                   >
-                    <option value="">Todas</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
+                    <option value="">Todos</option>
+                    {combinedSources.map((s) => (
+                      <option key={`${s.sourceType}-${s.id}`} value={s.id}>
+                        {s.sourceType === 'account' ? 'Conta' : 'Cartão'}: {s.name}
                       </option>
                     ))}
                   </select>
@@ -415,19 +440,21 @@ export default function Transactions() {
           <table className="w-full">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                {['Data', 'Descrição', 'Categoria', 'Conta', 'Status', 'Valor', ''].map((h) => (
-                  <th
-                    key={h}
-                    className="text-left px-4 py-3 text-xs font-semibold"
-                    style={{
-                      color: 'var(--muted-foreground)',
-                      textTransform: 'uppercase',
-                      letterSpacing: '0.04em',
-                    }}
-                  >
-                    {h}
-                  </th>
-                ))}
+                {['Data', 'Descrição', 'Categoria', 'Conta/Cartão', 'Status', 'Valor', ''].map(
+                  (h) => (
+                    <th
+                      key={h}
+                      className="text-left px-4 py-3 text-xs font-semibold"
+                      style={{
+                        color: 'var(--muted-foreground)',
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.04em',
+                      }}
+                    >
+                      {h}
+                    </th>
+                  )
+                )}
               </tr>
             </thead>
             <tbody>
@@ -486,7 +513,14 @@ export default function Transactions() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    <span className="truncate block max-w-28">{getAccountName(tx.account_id)}</span>
+                    <span className="truncate block max-w-28">
+                      {tx.account_id
+                        ? getAccountName(tx.account_id)
+                        : (tx as any).credit_card_id
+                          ? creditCards.find((c) => c.id === (tx as any).credit_card_id)?.name ||
+                            'Cartão'
+                          : '—'}
+                    </span>
                   </td>
                   <td className="px-4 py-3">
                     <span
@@ -657,19 +691,29 @@ export default function Transactions() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    Conta
+                    Conta/Cartão
                   </label>
                   <select
-                    value={editTx.accountId}
-                    onChange={(e) =>
-                      setEditTx((p) => ({ ...p, accountId: parseInt(e.target.value) }))
-                    }
+                    value={editTx.accountId ?? editTx.creditCardId ?? ''}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (!val) {
+                        setEditTx((p) => ({ ...p, accountId: null, creditCardId: null }));
+                        return;
+                      }
+                      const [type, id] = val.split('-');
+                      if (type === 'account') {
+                        setEditTx((p) => ({ ...p, accountId: parseInt(id), creditCardId: null }));
+                      } else if (type === 'credit_card') {
+                        setEditTx((p) => ({ ...p, creditCardId: parseInt(id), accountId: null }));
+                      }
+                    }}
                     className="w-full"
                   >
-                    <option value="">Selecione</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
+                    <option value="">Nenhum (só pendente)</option>
+                    {combinedSources.map((s) => (
+                      <option key={`${s.sourceType}-${s.id}`} value={`${s.sourceType}-${s.id}`}>
+                        {s.sourceType === 'account' ? 'Conta' : 'Cartão'}: {s.name}
                       </option>
                     ))}
                   </select>
@@ -681,7 +725,7 @@ export default function Transactions() {
                     </label>
                     <select
                       className="w-full"
-                      value={editTx.categoryId || ''}
+                      value={editTx.categoryId ?? ''}
                       onChange={(e) =>
                         setEditTx((p) => ({
                           ...p,
@@ -710,7 +754,7 @@ export default function Transactions() {
                     </label>
                     <select
                       className="w-full"
-                      value={editTx.destAccountId || ''}
+                      value={editTx.destAccountId ?? ''}
                       onChange={(e) =>
                         setEditTx((p) => ({
                           ...p,
@@ -731,47 +775,46 @@ export default function Transactions() {
                 )}
               </div>
 
-              {/* Parcelas para cartão de crédito */}
-              {editTx.type === 'expense' &&
-                accounts.find((a) => a.id === editTx.accountId)?.type === 'credit' && (
-                  <div
-                    className="flex items-center gap-3 p-3 rounded-lg"
-                    style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
-                  >
-                    <div className="flex flex-col gap-1 flex-1">
-                      <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                        Parcelas
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        max={24}
-                        value={installments}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value) || 1;
-                          setInstallments(val);
-                          setEditTx((p) => ({
-                            ...p,
-                            installment_total: val,
-                            installment_current: 1,
-                          }));
-                        }}
-                        className="w-full"
-                      />
-                    </div>
-                    <div className="flex flex-col gap-1 flex-1">
-                      <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                        Valor por parcela
-                      </label>
-                      <p
-                        className="text-sm mono font-semibold mt-2"
-                        style={{ color: 'var(--primary)' }}
-                      >
-                        {installments > 1 ? formatBRL((editTx.amount || 0) / installments) : '—'}
-                      </p>
-                    </div>
+              {/* Parcelas - agora apenas se creditCardId estiver preenchido */}
+              {editTx.type === 'expense' && editTx.creditCardId && (
+                <div
+                  className="flex items-center gap-3 p-3 rounded-lg"
+                  style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+                >
+                  <div className="flex flex-col gap-1 flex-1">
+                    <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      Parcelas
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={24}
+                      value={installments}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 1;
+                        setInstallments(val);
+                        setEditTx((p) => ({
+                          ...p,
+                          installment_total: val,
+                          installment_current: 1,
+                        }));
+                      }}
+                      className="w-full"
+                    />
                   </div>
-                )}
+                  <div className="flex flex-col gap-1 flex-1">
+                    <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      Valor por parcela
+                    </label>
+                    <p
+                      className="text-sm mono font-semibold mt-2"
+                      style={{ color: 'var(--primary)' }}
+                    >
+                      {installments > 1 ? formatBRL((editTx.amount || 0) / installments) : '—'}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
@@ -788,10 +831,15 @@ export default function Transactions() {
                     }
                     className="w-full"
                   >
-                    <option value="confirmed">Confirmada</option>
                     <option value="pending">Pendente</option>
+                    <option value="confirmed">Confirmada</option>
                     <option value="cancelled">Cancelada</option>
                   </select>
+                  {editTx.status !== 'pending' && !editTx.accountId && !editTx.creditCardId && (
+                    <p className="text-xs text-danger mt-1" style={{ color: 'var(--danger)' }}>
+                      Para confirmar ou cancelar, selecione uma conta ou cartão.
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
