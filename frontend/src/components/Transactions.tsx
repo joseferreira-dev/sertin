@@ -13,11 +13,12 @@ import {
   Search,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
-import { mockAccounts, mockCategories, formatBRL } from '../data/mock';
+import { formatBRL } from '../data/mock';
 import { transactionService, Transaction as TransactionType } from '../services/transactionService';
+import { accountService, Account } from '../services/accountService';
+import { categoryService, Category } from '../services/categoryService';
 import { tagService, Tag } from '../services/tagService';
 
-// Definir interfaces locais para o componente
 interface TransactionWithTags extends TransactionType {
   tags?: Tag[];
 }
@@ -41,8 +42,8 @@ const emptyTx: TransactionForm = {
   date: new Date().toISOString().slice(0, 10),
   description: '',
   amount: 0,
-  accountId: 1,
-  categoryId: 1,
+  accountId: 0,
+  categoryId: null,
   status: 'confirmed',
   tagIds: [],
   installment_total: 1,
@@ -53,6 +54,8 @@ export default function Transactions() {
   const { token } = useAuth();
   const [txs, setTxs] = useState<TransactionWithTags[]>([]);
   const [loading, setLoading] = useState(true);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [editTx, setEditTx] = useState<TransactionForm>(emptyTx);
@@ -69,14 +72,18 @@ export default function Transactions() {
     if (!token) return;
     try {
       setLoading(true);
-      const [txns, tags] = await Promise.all([
-        transactionService.getAll(token, { limit: 100 }),
+      const [txns, accs, cats, tags] = await Promise.all([
+        transactionService.getAll(token, { limit: 200 }),
+        accountService.getAll(token, false),
+        categoryService.getAll(token),
         tagService.getAll(token),
       ]);
       setTxs(txns);
+      setAccounts(accs);
+      setCategories(cats);
       setAvailableTags(tags);
     } catch (err) {
-      console.error(err);
+      console.error('Erro ao carregar dados:', err);
     } finally {
       setLoading(false);
     }
@@ -100,8 +107,14 @@ export default function Transactions() {
     .reduce((s, t) => s + Math.abs(t.amount), 0);
 
   const openNew = () => {
-    setEditTx({ ...emptyTx, date: new Date().toISOString().slice(0, 10) });
+    const defaultAccountId = accounts.length > 0 ? accounts[0].id : 0;
+    setEditTx({
+      ...emptyTx,
+      date: new Date().toISOString().slice(0, 10),
+      accountId: defaultAccountId,
+    });
     setEditingId(null);
+    setInstallments(1);
     setShowModal(true);
   };
 
@@ -120,6 +133,7 @@ export default function Transactions() {
       installment_current: tx.installment_current || 1,
     });
     setEditingId(tx.id);
+    setInstallments(tx.installment_total || 1);
     setShowModal(true);
   };
 
@@ -148,7 +162,7 @@ export default function Transactions() {
       setShowModal(false);
       await loadData();
     } catch (err: any) {
-      alert(err.message);
+      alert(err.message || 'Erro ao salvar transação');
     }
   };
 
@@ -172,6 +186,19 @@ export default function Transactions() {
     if (s === 'confirmed') return 'Confirmada';
     if (s === 'pending') return 'Pendente';
     return 'Cancelada';
+  };
+
+  const getCategoryName = (id?: number | null) => {
+    if (!id) return '—';
+    const flat = categories.flatMap((c) => [c, ...(c.children || [])]);
+    const found = flat.find((c) => c.id === id);
+    return found ? found.name : `ID ${id}`;
+  };
+
+  const getAccountName = (id?: number) => {
+    if (!id) return '—';
+    const found = accounts.find((a) => a.id === id);
+    return found ? found.name : `ID ${id}`;
   };
 
   if (loading) {
@@ -279,7 +306,7 @@ export default function Transactions() {
                     onChange={(e) => setFilterAccount(e.target.value)}
                   >
                     <option value="">Todas</option>
-                    {mockAccounts.map((a) => (
+                    {accounts.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.name}
                       </option>
@@ -437,10 +464,12 @@ export default function Transactions() {
                     </div>
                   </td>
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    <span className="truncate block max-w-28">{tx.category_id}</span>
+                    <span className="truncate block max-w-28">
+                      {getCategoryName(tx.category_id)}
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    <span className="truncate block max-w-28">{tx.account_id}</span>
+                    <span className="truncate block max-w-28">{getAccountName(tx.account_id)}</span>
                   </td>
                   <td className="px-4 py-3">
                     <span
@@ -505,7 +534,7 @@ export default function Transactions() {
         </div>
       </div>
 
-      {/* Modal */}
+      {/* Modal de criação/edição */}
       {showModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -612,7 +641,8 @@ export default function Transactions() {
                     }
                     className="w-full"
                   >
-                    {mockAccounts.map((a) => (
+                    <option value="">Selecione</option>
+                    {accounts.map((a) => (
                       <option key={a.id} value={a.id}>
                         {a.name}
                       </option>
@@ -628,13 +658,17 @@ export default function Transactions() {
                       className="w-full"
                       value={editTx.categoryId || ''}
                       onChange={(e) =>
-                        setEditTx((p) => ({ ...p, categoryId: parseInt(e.target.value) || null }))
+                        setEditTx((p) => ({
+                          ...p,
+                          categoryId: e.target.value ? parseInt(e.target.value) : null,
+                        }))
                       }
                     >
-                      {mockCategories.map((c) => (
-                        <optgroup key={c.id} label={c.name}>
-                          <option value={c.id}>{c.name} (geral)</option>
-                          {c.children.map((sub) => (
+                      <option value="">Sem categoria</option>
+                      {categories.map((cat) => (
+                        <optgroup key={cat.id} label={cat.name}>
+                          <option value={cat.id}>{cat.name}</option>
+                          {cat.children?.map((sub) => (
                             <option key={sub.id} value={sub.id}>
                               {sub.name}
                             </option>
@@ -651,11 +685,16 @@ export default function Transactions() {
                     </label>
                     <select
                       className="w-full"
+                      value={editTx.destAccountId || ''}
                       onChange={(e) =>
-                        setEditTx((p) => ({ ...p, destAccountId: parseInt(e.target.value) }))
+                        setEditTx((p) => ({
+                          ...p,
+                          destAccountId: e.target.value ? parseInt(e.target.value) : null,
+                        }))
                       }
                     >
-                      {mockAccounts
+                      <option value="">Selecione</option>
+                      {accounts
                         .filter((a) => a.id !== editTx.accountId)
                         .map((a) => (
                           <option key={a.id} value={a.id}>
@@ -667,9 +706,9 @@ export default function Transactions() {
                 )}
               </div>
 
-              {/* Installments for credit cards */}
-              {mockAccounts.find((a) => a.id === editTx.accountId)?.type === 'credit' &&
-                editTx.type === 'expense' && (
+              {/* Parcelas para cartão de crédito */}
+              {editTx.type === 'expense' &&
+                accounts.find((a) => a.id === editTx.accountId)?.type === 'credit' && (
                   <div
                     className="flex items-center gap-3 p-3 rounded-lg"
                     style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}

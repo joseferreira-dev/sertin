@@ -9,34 +9,42 @@ import {
   PieChart,
   Pie,
   Cell,
-  LineChart,
-  Line,
-  Area,
   AreaChart,
+  Area,
 } from 'recharts';
-import { TrendingUp, TrendingDown, ArrowRight, ArrowLeftRight, Plus } from 'lucide-react';
+import { TrendingUp, TrendingDown, ArrowLeftRight, Plus } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { accountService, Account } from '../services/accountService';
 import { transactionService, Transaction } from '../services/transactionService';
 import { goalService, Goal } from '../services/goalService';
 import { formatBRL } from '../data/mock';
 
-// Função para agrupar transações por categoria (simulada)
-const aggregateByCategory = (transactions: Transaction[]) => {
-  const map: Record<string, number> = {};
-  transactions.forEach((tx) => {
-    if (tx.type === 'expense' && tx.category_id) {
-      // Idealmente buscar o nome da categoria via API, mas por enquanto usamos ID
-      const key = String(tx.category_id);
-      map[key] = (map[key] || 0) + Math.abs(tx.amount);
-    }
-  });
-  return Object.entries(map).map(([category, value]) => ({
-    name: `Categoria ${category}`, // substituir depois por nome real
-    value,
-    color: '#6366f1', // cores aleatórias
-  }));
-};
+// Dados mock para gráficos (exemplo - substitua por dados reais quando tiver endpoints agregados)
+const monthlyData = [
+  { month: 'Jan', income: 8200, expenses: 6800 },
+  { month: 'Fev', income: 7800, expenses: 7100 },
+  { month: 'Mar', income: 10300, expenses: 6200 },
+  { month: 'Abr', income: 7500, expenses: 7800 },
+  { month: 'Mai', income: 9200, expenses: 6900 },
+  { month: 'Jun', income: 8800, expenses: 7200 },
+];
+
+const patrimonyData = [
+  { month: 'Jan', value: 28400 },
+  { month: 'Fev', value: 29100 },
+  { month: 'Mar', value: 33200 },
+  { month: 'Abr', value: 32900 },
+  { month: 'Mai', value: 35200 },
+  { month: 'Jun', value: 36600 },
+];
+
+const topCategoriesData = [
+  { name: 'Moradia', value: 2987, color: '#6366f1' },
+  { name: 'Alimentação', value: 650, color: '#f59e0b' },
+  { name: 'Saúde', value: 745, color: '#ef4444' },
+  { name: 'Transporte', value: 379, color: '#3b82f6' },
+  { name: 'Lazer', value: 422, color: '#ec4899' },
+];
 
 export default function Dashboard({ onNavigate }: { onNavigate: (page: string) => void }) {
   const { token } = useAuth();
@@ -55,9 +63,15 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
         ]);
         setAccounts(accs);
         setTransactions(Array.isArray(txns) ? txns : []);
-        // setGoals(goalsData);
+        // Buscar metas
+        try {
+          const goalsData = await goalService.getAll(token);
+          setGoals(Array.isArray(goalsData) ? goalsData : []);
+        } catch {
+          setGoals([]);
+        }
       } catch (err) {
-        console.error(err);
+        console.error('Erro ao carregar dashboard:', err);
       } finally {
         setLoading(false);
       }
@@ -65,7 +79,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
     loadData();
   }, [token]);
 
-  // Net Worth (ativos - passivos)
+  // Cálculos reais
   const netWorth = accounts.reduce((s, a) => s + a.balance, 0);
   const totalIncome = transactions
     .filter((t) => t.type === 'income')
@@ -75,39 +89,43 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
     .reduce((s, t) => s + Math.abs(t.amount), 0);
   const monthBalance = totalIncome - totalExpenses;
 
-  // Dados para gráficos (mock para exemplo – substituir com dados reais)
-  const monthlyData = [
-    { month: 'Jan', income: 8200, expenses: 6800 },
-    { month: 'Fev', income: 7800, expenses: 7100 },
-    { month: 'Mar', income: 10300, expenses: 6200 },
-    { month: 'Abr', income: 7500, expenses: 7800 },
-    { month: 'Mai', income: 9200, expenses: 6900 },
-    { month: 'Jun', income: 8800, expenses: 7200 },
-    { month: 'Jul', income: totalIncome, expenses: totalExpenses },
+  // Atualiza o último mês do gráfico com dados reais
+  const currentMonth = new Date().toLocaleString('pt-BR', { month: 'short' });
+  const updatedMonthlyData = [
+    ...monthlyData.slice(0, -1),
+    { month: currentMonth, income: totalIncome, expenses: totalExpenses },
   ];
 
-  const patrimonyData = [
-    { month: 'Jan', value: 28400 },
-    { month: 'Fev', value: 29100 },
-    { month: 'Mar', value: 33200 },
-    { month: 'Abr', value: 32900 },
-    { month: 'Mai', value: 35200 },
-    { month: 'Jun', value: 36600 },
-    { month: 'Jul', value: netWorth },
+  // Atualiza patrimônio com dados reais
+  const updatedPatrimonyData = [
+    ...patrimonyData.slice(0, -1),
+    { month: currentMonth, value: netWorth },
   ];
 
-  const topCategoriesData = aggregateByCategory(transactions);
-
-  // Reuse tooltips etc.
-
-  if (loading) return <div>Carregando...</div>;
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto">
       {/* KPI Cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
-        <KPICard label="Patrimônio Líquido" value={netWorth} up color="var(--primary)" />
-        <KPICard label="Receitas do Mês" value={totalIncome} up color="var(--primary)" />
+        <KPICard
+          label="Patrimônio Líquido"
+          value={netWorth}
+          up={netWorth >= 0}
+          color="var(--primary)"
+        />
+        <KPICard
+          label="Receitas do Mês"
+          value={totalIncome}
+          up={totalIncome >= 0}
+          color="var(--primary)"
+        />
         <KPICard label="Despesas do Mês" value={totalExpenses} up={false} color="var(--danger)" />
         <KPICard
           label="Saldo Líquido"
@@ -149,7 +167,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
             </div>
           </div>
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={monthlyData} barGap={3}>
+            <BarChart data={updatedMonthlyData} barGap={3}>
               <XAxis
                 dataKey="month"
                 tick={{ fontSize: 11, fill: 'var(--muted-foreground)' }}
@@ -169,7 +187,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
           </ResponsiveContainer>
         </div>
 
-        {/* Top Categories */}
+        {/* Top Categories (mock) */}
         <div
           className="col-span-2 rounded-xl p-5"
           style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
@@ -177,7 +195,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
           <div className="mb-3">
             <h3 className="text-sm font-semibold">Top Categorias</h3>
             <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-              Despesas de Julho
+              Despesas do mês (exemplo)
             </p>
           </div>
           <div className="flex items-center justify-center">
@@ -191,7 +209,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
                 dataKey="value"
               >
                 {topCategoriesData.map((entry, i) => (
-                  <Cell key={i} fill={entry.color || '#6366f1'} strokeWidth={0} />
+                  <Cell key={i} fill={entry.color} strokeWidth={0} />
                 ))}
               </Pie>
               <Tooltip formatter={(v: any) => formatBRL(Number(v))} />
@@ -203,7 +221,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
                 <span className="flex items-center gap-1.5">
                   <span
                     className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{ background: d.color || '#6366f1' }}
+                    style={{ background: d.color }}
                   />
                   {d.name}
                 </span>
@@ -226,7 +244,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
           <div className="mb-3">
             <h3 className="text-sm font-semibold">Evolução Patrimonial</h3>
             <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-              Últimos 7 meses
+              Últimos meses
             </p>
           </div>
           <div
@@ -236,7 +254,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
             {formatBRL(netWorth)}
           </div>
           <ResponsiveContainer width="100%" height={120}>
-            <AreaChart data={patrimonyData}>
+            <AreaChart data={updatedPatrimonyData}>
               <defs>
                 <linearGradient id="netGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.2} />
@@ -282,47 +300,55 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
               style={{ color: 'var(--muted-foreground)' }}
               className="hover:opacity-70 transition-opacity"
             >
-              <ArrowRight size={14} />
+              <Plus size={14} />
             </button>
           </div>
-          <div className="flex flex-col gap-3">
-            {goals.slice(0, 3).map((g) => (
-              <div key={g.id} className="flex items-center gap-3">
-                <div className="relative w-10 h-10 flex-shrink-0">
-                  <svg className="progress-ring" width="40" height="40">
-                    <circle
-                      cx="20"
-                      cy="20"
-                      r={18}
-                      fill="none"
-                      stroke="var(--border)"
-                      strokeWidth="3"
-                    />
-                    <circle
-                      cx="20"
-                      cy="20"
-                      r={18}
-                      fill="none"
-                      stroke={g.color || '#10b981'}
-                      strokeWidth="3"
-                      strokeDasharray={2 * Math.PI * 18}
-                      strokeDashoffset={(1 - g.current / g.target) * 2 * Math.PI * 18}
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                  <span className="absolute inset-0 flex items-center justify-center text-xs font-bold">
-                    {Math.round((g.current / g.target) * 100)}%
-                  </span>
+          {goals.length === 0 ? (
+            <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+              Nenhuma meta cadastrada.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              {goals.slice(0, 3).map((g) => (
+                <div key={g.id} className="flex items-center gap-3">
+                  <div className="relative w-10 h-10 flex-shrink-0">
+                    <svg className="progress-ring" width="40" height="40">
+                      <circle
+                        cx="20"
+                        cy="20"
+                        r={18}
+                        fill="none"
+                        stroke="var(--border)"
+                        strokeWidth="3"
+                      />
+                      <circle
+                        cx="20"
+                        cy="20"
+                        r={18}
+                        fill="none"
+                        stroke={g.color || '#10b981'}
+                        strokeWidth="3"
+                        strokeDasharray={2 * Math.PI * 18}
+                        strokeDashoffset={
+                          (1 - (g.current || 0) / (g.target || 1)) * 2 * Math.PI * 18
+                        }
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <span className="absolute inset-0 flex items-center justify-center text-xs font-bold">
+                      {Math.round(((g.current || 0) / (g.target || 1)) * 100)}%
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium truncate">{g.name}</p>
+                    <p className="text-xs mono" style={{ color: 'var(--muted-foreground)' }}>
+                      {formatBRL(g.current || 0)}
+                    </p>
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate">{g.name}</p>
-                  <p className="text-xs mono" style={{ color: 'var(--muted-foreground)' }}>
-                    {formatBRL(g.current)}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
           <button
             onClick={() => onNavigate('goals')}
             className="mt-4 w-full text-xs py-2 rounded-lg transition-opacity hover:opacity-80 text-center"
@@ -402,6 +428,14 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
                 </span>
               </div>
             ))}
+            {transactions.length === 0 && (
+              <div
+                className="px-5 py-4 text-xs text-center"
+                style={{ color: 'var(--muted-foreground)' }}
+              >
+                Nenhuma transação recente.
+              </div>
+            )}
           </div>
         </div>
       </div>

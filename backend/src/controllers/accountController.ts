@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { Account } from '../models/Account';
 import { AuthRequest } from '../middlewares/auth';
+import { Transaction } from '../models/Transaction';
 
 export const accountController = {
   // Listar contas
@@ -38,7 +39,18 @@ export const accountController = {
   async create(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
-      const { name, type, balance, color, institution, icon, limit_amount, closing_day, due_day, status } = req.body;
+      const {
+        name,
+        type,
+        balance,
+        color,
+        institution,
+        icon,
+        limit_amount,
+        closing_day,
+        due_day,
+        status,
+      } = req.body;
 
       if (!name || !type) {
         return res.status(400).json({ error: 'Nome e tipo são obrigatórios' });
@@ -57,6 +69,27 @@ export const accountController = {
         due_day: due_day || null,
         status: status || 'active',
       });
+
+      const initialBalance = parseFloat(balance) || 0;
+      if (initialBalance !== 0) {
+        Transaction.create({
+          user_id: userId,
+          account_id: id,
+          category_id: null,
+          dest_account_id: null,
+          type: 'income',
+          amount: initialBalance,
+          description: 'Saldo inicial',
+          date: new Date().toISOString().slice(0, 10),
+          status: 'confirmed',
+          installment_total: 1,
+          installment_current: 1,
+          recurring_id: null,
+          meta_id: null,
+          attachment_path: null,
+        });
+        Transaction.updateAccountBalance(id, userId);
+      }
 
       const newAccount = Account.findById(id, userId);
       res.status(201).json(newAccount);
@@ -128,5 +161,5 @@ export const accountController = {
       console.error('Erro ao calcular Net Worth:', error);
       res.status(500).json({ error: 'Erro ao calcular Net Worth' });
     }
-  }
+  },
 };

@@ -84,8 +84,14 @@ export function seed() {
       INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, limit_amount, closing_day, due_day, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
+
+    const initTxStmt = db.prepare(`
+      INSERT INTO transactions (user_id, account_id, type, amount, description, date, status, installment_total, installment_current)
+      VALUES (?, ?, 'income', ?, 'Saldo inicial', date('now'), 'confirmed', 1, 1)
+    `);
+
     for (const acc of accounts) {
-      accStmt.run(
+      const info = accStmt.run(
         userId,
         acc.name,
         acc.type,
@@ -98,6 +104,10 @@ export function seed() {
         acc.due_day || null,
         acc.status || 'active'
       );
+      const accountId = info.lastInsertRowid as number;
+      if (acc.balance !== 0) {
+        initTxStmt.run(userId, accountId, acc.balance);
+      }
     }
 
     // 3. Categorias padrão

@@ -8,6 +8,7 @@ export interface Goal {
 }
 export const goalService = {
   async getAll(token: string): Promise<Goal[]> {
-    return api.get<Goal[]>('/goals', token);
+    const response = await api.get<any>('/goals', token);
+    return Array.isArray(response) ? response : response.data || [];
   },
 };

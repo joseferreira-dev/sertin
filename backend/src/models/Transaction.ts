@@ -52,7 +52,6 @@ export class Transaction {
   static findByUser(userId: number, filters?: any): ITransaction[] {
     let sql = 'SELECT * FROM transactions WHERE user_id = ?';
     const params: any[] = [userId];
-    // Aqui podemos adicionar filtros dinâmicos (período, conta, categoria, etc.)
     if (filters) {
       if (filters.startDate) {
         sql += ' AND date >= ?';
@@ -103,7 +102,6 @@ export class Transaction {
     stmt.run(id, userId);
   }
 
-  // Método para buscar transações com tags
   static findWithTags(userId: number, filters?: any): any[] {
     const txns = this.findByUser(userId, filters);
     return txns.map((txn) => {
@@ -142,24 +140,23 @@ export class Transaction {
     }
   }
 
-  // Atualizar saldo da conta após inserção/edição/exclusão de transação
   static updateAccountBalance(accountId: number, userId: number) {
     const stmt = db.prepare(`
       UPDATE accounts
       SET balance = COALESCE((
         SELECT SUM(
-          CASE type
-            WHEN 'income' THEN amount
-            WHEN 'expense' THEN -amount
-            WHEN 'transfer' AND dest_account_id = account_id THEN amount
-            WHEN 'transfer' AND account_id = account_id THEN -amount
+          CASE
+            WHEN type = 'income' THEN amount
+            WHEN type = 'expense' THEN amount
+            WHEN type = 'transfer' AND dest_account_id = ? THEN amount
+            WHEN type = 'transfer' AND account_id = ? THEN -amount
           END
         )
         FROM transactions
-        WHERE account_id = ? AND user_id = ? AND status = 'confirmed'
+        WHERE (account_id = ? OR dest_account_id = ?) AND user_id = ? AND status = 'confirmed'
       ), 0)
       WHERE id = ? AND user_id = ?
     `);
-    stmt.run(accountId, userId, accountId, userId);
+    stmt.run(accountId, accountId, accountId, accountId, userId, accountId, userId);
   }
 }

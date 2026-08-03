@@ -2,7 +2,6 @@ import { Response } from 'express';
 import { Transaction } from '../models/Transaction';
 import { AuthRequest } from '../middlewares/auth';
 
-// Definir tipos para evitar repetição
 type TransactionStatus = 'pending' | 'confirmed' | 'cancelled';
 type TransactionType = 'income' | 'expense' | 'transfer';
 
@@ -10,7 +9,7 @@ const validateStatus = (status: string): TransactionStatus => {
   if (status === 'pending' || status === 'confirmed' || status === 'cancelled') {
     return status;
   }
-  return 'confirmed'; // valor padrão
+  return 'confirmed';
 };
 
 const validateType = (type: string): TransactionType => {
@@ -58,7 +57,6 @@ export const transactionController = {
       if (!transaction) {
         return res.status(404).json({ error: 'Transação não encontrada' });
       }
-      // Buscar tags associadas
       const tags = Transaction.getTags(id);
       res.json({ ...transaction, tags });
     } catch (error: any) {
@@ -113,13 +111,14 @@ export const transactionController = {
         attachment_path: attachment_path || null,
       });
 
-      // Associar tags
       if (tagIds && Array.isArray(tagIds)) {
         Transaction.setTags(id, tagIds);
       }
 
-      // Atualizar saldo da conta
       Transaction.updateAccountBalance(account_id, userId);
+      if (validatedType === 'transfer' && dest_account_id) {
+        Transaction.updateAccountBalance(dest_account_id, userId);
+      }
 
       const newTransaction = Transaction.findById(id, userId);
       const tags = Transaction.getTags(id);
@@ -161,8 +160,9 @@ export const transactionController = {
       } = req.body;
 
       const oldAccountId = existing.account_id;
+      const oldDestAccountId = existing.dest_account_id;
+      const oldType = existing.type;
 
-      // Validar e montar objeto de atualização
       const updateData: any = {};
       if (account_id !== undefined) updateData.account_id = account_id;
       if (category_id !== undefined) updateData.category_id = category_id || null;
@@ -180,17 +180,24 @@ export const transactionController = {
 
       Transaction.update(id, userId, updateData);
 
-      // Atualizar tags
       if (tagIds && Array.isArray(tagIds)) {
         Transaction.setTags(id, tagIds);
       }
 
-      // Atualizar saldos
-      if (oldAccountId !== account_id) {
-        Transaction.updateAccountBalance(oldAccountId, userId);
-        Transaction.updateAccountBalance(account_id, userId);
-      } else {
-        Transaction.updateAccountBalance(account_id, userId);
+      // Recalcular saldos afetados
+      const newAccountId = updateData.account_id ?? oldAccountId;
+      const newDestAccountId = updateData.dest_account_id ?? oldDestAccountId;
+      const newType = updateData.type ?? oldType;
+
+      // Contas a atualizar (evitar duplicatas)
+      const accountsToUpdate = new Set<number>();
+      if (oldAccountId) accountsToUpdate.add(oldAccountId);
+      if (newAccountId) accountsToUpdate.add(newAccountId);
+      if (oldType === 'transfer' && oldDestAccountId) accountsToUpdate.add(oldDestAccountId);
+      if (newType === 'transfer' && newDestAccountId) accountsToUpdate.add(newDestAccountId);
+
+      for (const accId of accountsToUpdate) {
+        Transaction.updateAccountBalance(accId, userId);
       }
 
       const updated = Transaction.findById(id, userId);
@@ -216,12 +223,16 @@ export const transactionController = {
       }
 
       const accountId = existing.account_id;
+      const destAccountId = existing.dest_account_id;
+      const type = existing.type;
 
-      // Remover associações com tags
       Transaction.setTags(id, []);
-
       Transaction.delete(id, userId);
+
       Transaction.updateAccountBalance(accountId, userId);
+      if (type === 'transfer' && destAccountId) {
+        Transaction.updateAccountBalance(destAccountId, userId);
+      }
 
       res.json({ message: 'Transação excluída com sucesso' });
     } catch (error: any) {
