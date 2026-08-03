@@ -3,7 +3,6 @@ import {
   Filter,
   Plus,
   X,
-  ChevronDown,
   Pencil,
   Trash2,
   ArrowLeftRight,
@@ -68,12 +67,21 @@ export default function Transactions() {
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [installments, setInstallments] = useState(1);
 
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+
   const loadData = async () => {
     if (!token) return;
     try {
       setLoading(true);
+      const [year, month] = selectedMonth.split('-').map(Number);
+      const startDate = new Date(year, month - 1, 1).toISOString().slice(0, 10);
+      const endDate = new Date(year, month, 0).toISOString().slice(0, 10);
+
       const [txns, accs, cats, tags] = await Promise.all([
-        transactionService.getAll(token, { limit: 200 }),
+        transactionService.getAll(token, { limit: 200, startDate, endDate }),
         accountService.getAll(token, false),
         categoryService.getAll(token),
         tagService.getAll(token),
@@ -91,7 +99,7 @@ export default function Transactions() {
 
   useEffect(() => {
     loadData();
-  }, [token]);
+  }, [token, selectedMonth]);
 
   const filtered = txs.filter((tx) => {
     if (search && !tx.description?.toLowerCase().includes(search.toLowerCase())) return false;
@@ -221,6 +229,13 @@ export default function Transactions() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="text-sm"
+            style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+          />
           <button
             onClick={() => setFilterOpen(!filterOpen)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm transition-opacity hover:opacity-80"
@@ -432,17 +447,19 @@ export default function Transactions() {
                     <div className="flex flex-col gap-1">
                       <span className="text-xs font-medium truncate block">
                         {tx.description}
-                        {tx.installment_total && tx.installment_total > 1 && (
-                          <span
-                            className="ml-1 text-xs px-1 rounded"
-                            style={{
-                              background: 'var(--secondary)',
-                              color: 'var(--muted-foreground)',
-                            }}
-                          >
-                            {tx.installment_current}/{tx.installment_total}
-                          </span>
-                        )}
+                        {tx.installment_number &&
+                          tx.installment_total &&
+                          tx.installment_total > 1 && (
+                            <span
+                              className="ml-1 text-xs px-1 rounded"
+                              style={{
+                                background: 'var(--secondary)',
+                                color: 'var(--muted-foreground)',
+                              }}
+                            >
+                              {tx.installment_number}/{tx.installment_total}
+                            </span>
+                          )}
                       </span>
                       {tx.tags && tx.tags.length > 0 && (
                         <div className="flex gap-1 flex-wrap">

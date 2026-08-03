@@ -11,11 +11,9 @@ if (!fs.existsSync(dbDir)) {
 const dbPath = process.env.DB_PATH || './data/sertin.db';
 const db = new Database(dbPath);
 
-// Habilitar WAL para performance
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
-// Criar tabelas
 db.exec(`
   -- Usuários
   CREATE TABLE IF NOT EXISTS users (
@@ -63,13 +61,13 @@ db.exec(`
     FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE CASCADE
   );
 
-  -- Transações
+  -- Transações (com campos de parcelamento)
   CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     account_id INTEGER NOT NULL,
     category_id INTEGER,
-    dest_account_id INTEGER,   -- para transferências
+    dest_account_id INTEGER,
     type TEXT NOT NULL CHECK(type IN ('income','expense','transfer')),
     amount REAL NOT NULL,
     description TEXT NOT NULL,
@@ -77,15 +75,35 @@ db.exec(`
     status TEXT DEFAULT 'confirmed' CHECK(status IN ('pending','confirmed','cancelled')),
     installment_total INTEGER DEFAULT 1,
     installment_current INTEGER DEFAULT 1,
-    recurring_id INTEGER,     -- para transações recorrentes
-    meta_id INTEGER,          -- vinculo com meta (aporte automático)
+    recurring_id INTEGER,
+    meta_id INTEGER,
     attachment_path TEXT,
+    installment_id INTEGER,
+    installment_number INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
     FOREIGN KEY (dest_account_id) REFERENCES accounts(id) ON DELETE SET NULL
+  );
+
+  -- Parcelamentos
+  CREATE TABLE IF NOT EXISTS installments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    account_id INTEGER NOT NULL,
+    category_id INTEGER,
+    description TEXT NOT NULL,
+    total_amount REAL NOT NULL,
+    installment_count INTEGER NOT NULL,
+    start_date DATE NOT NULL,
+    status TEXT DEFAULT 'active' CHECK(status IN ('active','completed','canceled')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
   );
 
   -- Tags
@@ -116,7 +134,7 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     category_id INTEGER NOT NULL,
-    month TEXT NOT NULL,   -- formato 'YYYY-MM'
+    month TEXT NOT NULL,
     budgeted_amount REAL NOT NULL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -139,7 +157,7 @@ db.exec(`
     status TEXT DEFAULT 'active' CHECK(status IN ('active','completed','delayed','archived')),
     target_date DATE,
     description TEXT,
-    annual_yield REAL DEFAULT 0,  -- rendimento anual (%)
+    annual_yield REAL DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
@@ -168,13 +186,14 @@ db.exec(`
   );
 `);
 
-// Criar índices para performance
+// Índices para performance
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);
   CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id);
   CREATE INDEX IF NOT EXISTS idx_budgets_user_month ON budgets(user_id, month);
   CREATE INDEX IF NOT EXISTS idx_goals_user_status ON goals(user_id, status);
+  CREATE INDEX IF NOT EXISTS idx_installments_user_status ON installments(user_id, status);
 `);
 
 logger.info(`Banco de dados inicializado em ${dbPath}`);

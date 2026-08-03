@@ -13,6 +13,8 @@ export interface Transaction {
   status: 'pending' | 'confirmed' | 'cancelled';
   installment_total?: number;
   installment_current?: number;
+  installment_id?: number | null;
+  installment_number?: number | null;
   tags?: any[];
 }
 

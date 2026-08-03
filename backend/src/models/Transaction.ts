@@ -11,6 +11,8 @@ export interface ITransaction {
   description: string;
   date: string;
   status?: 'pending' | 'confirmed' | 'cancelled';
+  installment_id?: number | null;
+  installment_number?: number | null;
   installment_total?: number;
   installment_current?: number;
   recurring_id?: number | null;
@@ -26,9 +28,9 @@ export class Transaction {
       INSERT INTO transactions (
         user_id, account_id, category_id, dest_account_id, type, amount,
         description, date, status, installment_total, installment_current,
-        recurring_id, meta_id, attachment_path
+        recurring_id, meta_id, attachment_path, installment_id, installment_number
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       data.user_id,
@@ -44,7 +46,9 @@ export class Transaction {
       data.installment_current || 1,
       data.recurring_id || null,
       data.meta_id || null,
-      data.attachment_path || null
+      data.attachment_path || null,
+      data.installment_id || null,
+      data.installment_number || null
     );
     return info.lastInsertRowid as number;
   }

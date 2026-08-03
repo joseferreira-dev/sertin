@@ -5,6 +5,7 @@ import Onboarding from './components/Onboarding';
 import Layout, { type Page } from './components/Layout';
 import Dashboard from './components/Dashboard';
 import Transactions from './components/Transactions';
+import Installments from './components/Installments';
 import Accounts from './components/Accounts';
 import Categories from './components/Categories';
 import Tags from './components/Tags';
@@ -49,6 +50,7 @@ export default function App() {
     <Layout currentPage={page} onNavigate={navigate} onLogout={handleLogout}>
       {page === 'dashboard' && <Dashboard onNavigate={navigate} />}
       {page === 'transactions' && <Transactions />}
+      {page === 'installments' && <Installments />}
       {page === 'accounts' && <Accounts />}
       {page === 'categories' && <Categories />}
       {page === 'tags' && <Tags />}

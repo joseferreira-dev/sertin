@@ -53,13 +53,24 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Mês/ano selecionado
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  });
+
   useEffect(() => {
     if (!token) return;
     const loadData = async () => {
       try {
+        // Calcula início e fim do mês selecionado
+        const [year, month] = selectedMonth.split('-').map(Number);
+        const startDate = new Date(year, month - 1, 1).toISOString().slice(0, 10);
+        const endDate = new Date(year, month, 0).toISOString().slice(0, 10);
+
         const [accs, txns] = await Promise.all([
           accountService.getAll(token, false),
-          transactionService.getAll(token, { limit: 10, sort: 'date_desc' }),
+          transactionService.getAll(token, { startDate, endDate }),
         ]);
         setAccounts(accs);
         setTransactions(Array.isArray(txns) ? txns : []);
@@ -77,9 +88,9 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
       }
     };
     loadData();
-  }, [token]);
+  }, [token, selectedMonth]);
 
-  // Cálculos reais
+  // Cálculos reais com base nas transações do mês selecionado
   const netWorth = accounts.reduce((s, a) => s + a.balance, 0);
   const totalIncome = transactions
     .filter((t) => t.type === 'income')
@@ -110,8 +121,34 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
     );
   }
 
+  // Formatar mês para exibição (ex: "Julho 2025")
+  const displayMonth = (() => {
+    const [y, m] = selectedMonth.split('-').map(Number);
+    const date = new Date(y, m - 1, 1);
+    return date.toLocaleString('pt-BR', { month: 'long', year: 'numeric' });
+  })();
+
   return (
     <div className="max-w-7xl mx-auto">
+      {/* Cabeçalho com seletor de mês */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-lg font-bold" style={{ letterSpacing: '-0.03em' }}>
+            Dashboard
+          </h1>
+          <p className="text-xs mt-0.5" style={{ color: 'var(--muted-foreground)' }}>
+            Resumo do mês de {displayMonth}
+          </p>
+        </div>
+        <input
+          type="month"
+          value={selectedMonth}
+          onChange={(e) => setSelectedMonth(e.target.value)}
+          className="text-sm"
+          style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+        />
+      </div>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
         <KPICard
@@ -433,7 +470,7 @@ export default function Dashboard({ onNavigate }: { onNavigate: (page: string) =
                 className="px-5 py-4 text-xs text-center"
                 style={{ color: 'var(--muted-foreground)' }}
               >
-                Nenhuma transação recente.
+                Nenhuma transação neste mês.
               </div>
             )}
           </div>

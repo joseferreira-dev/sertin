@@ -48,6 +48,22 @@ export const api = {
     return response.json();
   },
 
+  async patch<T>(endpoint: string, data?: any, token?: string): Promise<T> {
+    const response = await fetch(`${API_URL}${endpoint}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token && { Authorization: `Bearer ${token}` }),
+      },
+      body: data ? JSON.stringify(data) : undefined,
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Erro na requisição');
+    }
+    return response.json();
+  },
+
   async delete<T>(endpoint: string, token?: string): Promise<T> {
     const response = await fetch(`${API_URL}${endpoint}`, {
       method: 'DELETE',
