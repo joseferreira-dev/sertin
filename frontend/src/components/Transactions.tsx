@@ -259,7 +259,7 @@ export default function Transactions() {
 
       <div className="flex gap-4">
         {filterOpen && (
-          <div className="w-56 flex-shrink-0 flex flex-col gap-3">
+          <div className="w-56 shrink-0 flex flex-col gap-3">
             <div
               className="rounded-xl p-4"
               style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
@@ -516,22 +516,30 @@ export default function Transactions() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => openEdit(tx)}
-                        className="w-6 h-6 rounded flex items-center justify-center transition-opacity hover:opacity-70"
-                        style={{ color: 'var(--muted-foreground)' }}
-                      >
-                        <Pencil size={12} />
-                      </button>
-                      <button
-                        onClick={() => setConfirmDelete(tx.id!)}
-                        className="w-6 h-6 rounded flex items-center justify-center transition-opacity hover:opacity-70"
-                        style={{ color: 'var(--danger)' }}
-                      >
-                        <Trash2 size={12} />
-                      </button>
-                    </div>
+                    {tx.installment_id ? (
+                      <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                        (parcela)
+                      </span>
+                    ) : (
+                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => openEdit(tx)}
+                          className="w-6 h-6 rounded flex items-center justify-center transition-opacity hover:opacity-70"
+                          style={{ color: 'var(--muted-foreground)' }}
+                          title="Editar transação"
+                        >
+                          <Pencil size={12} />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDelete(tx.id!)}
+                          className="w-6 h-6 rounded flex items-center justify-center transition-opacity hover:opacity-70"
+                          style={{ color: 'var(--danger)' }}
+                          title="Excluir transação"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

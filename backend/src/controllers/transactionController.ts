@@ -142,6 +142,13 @@ export const transactionController = {
         return res.status(404).json({ error: 'Transação não encontrada' });
       }
 
+      if (existing.installment_id) {
+        return res.status(403).json({
+          error:
+            'Não é possível editar uma parcela individualmente. Gerencie o parcelamento completo.',
+        });
+      }
+
       const {
         account_id,
         category_id,
@@ -184,12 +191,10 @@ export const transactionController = {
         Transaction.setTags(id, tagIds);
       }
 
-      // Recalcular saldos afetados
       const newAccountId = updateData.account_id ?? oldAccountId;
       const newDestAccountId = updateData.dest_account_id ?? oldDestAccountId;
       const newType = updateData.type ?? oldType;
 
-      // Contas a atualizar (evitar duplicatas)
       const accountsToUpdate = new Set<number>();
       if (oldAccountId) accountsToUpdate.add(oldAccountId);
       if (newAccountId) accountsToUpdate.add(newAccountId);
@@ -220,6 +225,13 @@ export const transactionController = {
       const existing = Transaction.findById(id, userId);
       if (!existing) {
         return res.status(404).json({ error: 'Transação não encontrada' });
+      }
+
+      if (existing.installment_id) {
+        return res.status(403).json({
+          error:
+            'Não é possível excluir uma parcela individualmente. Gerencie o parcelamento completo.',
+        });
       }
 
       const accountId = existing.account_id;
