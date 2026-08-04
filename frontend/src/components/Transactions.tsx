@@ -163,6 +163,12 @@ export default function Transactions() {
     })),
   ];
 
+  const selectedSourceValue = (() => {
+    if (editTx.accountId) return `account-${editTx.accountId}`;
+    if (editTx.creditCardId) return `credit_card-${editTx.creditCardId}`;
+    return '';
+  })();
+
   const save = async () => {
     if (!token) return;
 
@@ -694,7 +700,7 @@ export default function Transactions() {
                     Conta/Cartão
                   </label>
                   <select
-                    value={editTx.accountId ?? editTx.creditCardId ?? ''}
+                    value={selectedSourceValue}
                     onChange={(e) => {
                       const val = e.target.value;
                       if (!val) {
@@ -775,7 +781,7 @@ export default function Transactions() {
                 )}
               </div>
 
-              {/* Parcelas - agora apenas se creditCardId estiver preenchido */}
+              {/* Parcelas - apenas se creditCardId estiver preenchido */}
               {editTx.type === 'expense' && editTx.creditCardId && (
                 <div
                   className="flex items-center gap-3 p-3 rounded-lg"

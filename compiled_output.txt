@@ -497,7 +497,6 @@ import bcrypt from 'bcrypt';
 
 export function seed() {
   try {
-    // Verificar se já existem usuários
     const count = db.prepare('SELECT COUNT(*) as count FROM users').get() as { count: number };
     if (count.count > 0) {
       console.log('Banco já possui dados. Pulando seed.');
@@ -506,7 +505,7 @@ export function seed() {
 
     console.log('Inserindo dados iniciais...');
 
-    // 1. Criar usuário
+    // 1. Usuário
     const password = 'Jose2569*';
     const hash = bcrypt.hashSync(password, 12);
     const stmt = db.prepare(`
@@ -522,7 +521,7 @@ export function seed() {
     );
     const userId = info.lastInsertRowid as number;
 
-    // 2. Criar contas padrão
+    // 2. Contas
     const accounts = [
       {
         name: 'Nubank',
@@ -531,36 +530,6 @@ export function seed() {
         color: '#8b5cf6',
         institution: 'Nubank',
         icon: 'Wallet',
-        status: 'active',
-      },
-      {
-        name: 'Bradesco CC',
-        type: 'checking',
-        balance: 12450.0,
-        color: '#ef4444',
-        institution: 'Bradesco',
-        icon: 'Building2',
-        status: 'active',
-      },
-      {
-        name: 'Poupança Bradesco',
-        type: 'savings',
-        balance: 8900.0,
-        color: '#3b82f6',
-        institution: 'Bradesco',
-        icon: 'PiggyBank',
-        status: 'active',
-      },
-      {
-        name: 'Cartão Inter',
-        type: 'credit',
-        balance: -3420.0,
-        color: '#f97316',
-        institution: 'Banco Inter',
-        icon: 'CreditCard',
-        limit_amount: 8000,
-        closing_day: 15,
-        due_day: 22,
         status: 'active',
       },
       {
@@ -575,8 +544,8 @@ export function seed() {
     ];
 
     const accStmt = db.prepare(`
-      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, limit_amount, closing_day, due_day, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const initTxStmt = db.prepare(`
@@ -593,10 +562,7 @@ export function seed() {
         acc.color,
         acc.institution,
         acc.icon,
-        acc.limit_amount || null,
-        acc.closing_day || null,
-        acc.due_day || null,
-        acc.status || 'active'
+        acc.status
       );
       const accountId = info.lastInsertRowid as number;
       if (acc.balance !== 0) {
@@ -604,7 +570,24 @@ export function seed() {
       }
     }
 
-    // 3. Categorias padrão
+    // 3. Cartão de crédito
+    const cardStmt = db.prepare(`
+      INSERT INTO credit_cards (user_id, name, institution, limit_amount, closing_day, due_day, color, icon, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    cardStmt.run(
+      userId,
+      'Cartão Inter',
+      'Banco Inter',
+      8000,
+      15,
+      22,
+      '#f97316',
+      'CreditCard',
+      'active'
+    );
+
+    // 4. Categorias padrão
     const categories = [
       { name: 'Moradia', type: 'expense', color: '#6366f1', icon: 'Home' },
       { name: 'Alimentação', type: 'expense', color: '#f59e0b', icon: 'UtensilsCrossed' },
@@ -655,7 +638,7 @@ export function seed() {
       }
     }
 
-    // 4. Tags padrão
+    // Tags padrão
     const tags = [
       { name: 'Fixo', color: '#6366f1', description: 'Despesas fixas mensais' },
       { name: 'Parcelado', color: '#f59e0b', description: 'Compras parceladas' },
@@ -719,21 +702,18 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('checking','savings','cash','credit','digital')),
+    type TEXT NOT NULL CHECK(type IN ('checking','savings','cash','digital')),
     balance REAL DEFAULT 0,
     color TEXT DEFAULT '#10b981',
     institution TEXT,
     icon TEXT DEFAULT 'Wallet',
-    limit_amount REAL,
-    closing_day INTEGER,
-    due_day INTEGER,
     status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
-  -- Cartões de crédito (independentes)
+  -- Cartões de crédito
   CREATE TABLE IF NOT EXISTS credit_cards (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -794,7 +774,7 @@ db.exec(`
     FOREIGN KEY (dest_account_id) REFERENCES accounts(id) ON DELETE SET NULL
   );
 
-  -- Parcelamentos (agora com credit_card_id)
+  -- Parcelamentos
   CREATE TABLE IF NOT EXISTS installments (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
@@ -905,16 +885,6 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_credit_cards_user_status ON credit_cards(user_id, status);
 `);
 
-try {
-  db.exec(
-    `ALTER TABLE installments ADD COLUMN credit_card_id INTEGER REFERENCES credit_cards(id) ON DELETE SET NULL;`
-  );
-} catch (e: any) {
-  if (!e.message.includes('duplicate column name')) {
-    console.warn('Erro ao adicionar coluna credit_card_id em installments:', e.message);
-  }
-}
-
 logger.info(`Banco de dados inicializado em ${dbPath}`);
 export default db;
 
@@ -928,7 +898,6 @@ import { AuthRequest } from '../middlewares/auth';
 import { Transaction } from '../models/Transaction';
 
 export const accountController = {
-  // Listar contas
   async getAll(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
@@ -944,7 +913,6 @@ export const accountController = {
   async getOne(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
-      // Garantir que id seja string
       const id = parseInt(String(req.params.id));
       if (isNaN(id)) {
         return res.status(400).json({ error: 'ID inválido' });
@@ -963,18 +931,7 @@ export const accountController = {
   async create(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
-      const {
-        name,
-        type,
-        balance,
-        color,
-        institution,
-        icon,
-        limit_amount,
-        closing_day,
-        due_day,
-        status,
-      } = req.body;
+      const { name, type, balance, color, institution, icon, status } = req.body;
 
       if (!name || !type) {
         return res.status(400).json({ error: 'Nome e tipo são obrigatórios' });
@@ -988,9 +945,6 @@ export const accountController = {
         color: color || '#10b981',
         institution: institution || '',
         icon: icon || 'Wallet',
-        limit_amount: limit_amount || null,
-        closing_day: closing_day || null,
-        due_day: due_day || null,
         status: status || 'active',
       });
 
@@ -1030,7 +984,7 @@ export const accountController = {
       if (isNaN(id)) {
         return res.status(400).json({ error: 'ID inválido' });
       }
-      const { name, color, institution, limit_amount, closing_day, due_day, status } = req.body;
+      const { name, color, institution, status } = req.body;
 
       const existing = Account.findById(id, userId);
       if (!existing) {
@@ -1041,9 +995,6 @@ export const accountController = {
         name,
         color,
         institution,
-        limit_amount,
-        closing_day,
-        due_day,
         status,
       });
 
@@ -2195,14 +2146,11 @@ export interface IAccount {
   id?: number;
   user_id: number;
   name: string;
-  type: 'checking' | 'savings' | 'cash' | 'credit' | 'digital';
+  type: 'checking' | 'savings' | 'cash' | 'digital';
   balance: number;
   color?: string;
   institution?: string;
   icon?: string;
-  limit_amount?: number;
-  closing_day?: number;
-  due_day?: number;
   status: 'active' | 'inactive';
   created_at?: string;
   updated_at?: string;
@@ -2211,8 +2159,8 @@ export interface IAccount {
 export class Account {
   static create(data: Omit<IAccount, 'id' | 'created_at' | 'updated_at'>): number {
     const stmt = db.prepare(`
-      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, limit_amount, closing_day, due_day, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       data.user_id,
@@ -2222,9 +2170,6 @@ export class Account {
       data.color || '#10b981',
       data.institution || null,
       data.icon || 'Wallet',
-      data.limit_amount || null,
-      data.closing_day || null,
-      data.due_day || null,
       data.status || 'active'
     );
     return info.lastInsertRowid as number;
@@ -2280,8 +2225,8 @@ export class Account {
   static getNetWorth(userId: number): { assets: number; liabilities: number; netWorth: number } {
     const stmt = db.prepare(`
       SELECT
-        SUM(CASE WHEN type != 'credit' AND balance > 0 THEN balance ELSE 0 END) as assets,
-        SUM(CASE WHEN type = 'credit' THEN ABS(balance) ELSE 0 END) as liabilities
+        SUM(CASE WHEN balance > 0 THEN balance ELSE 0 END) as assets,
+        SUM(CASE WHEN balance < 0 THEN ABS(balance) ELSE 0 END) as liabilities
       FROM accounts WHERE user_id = ? AND status = 'active'
     `);
     const row = stmt.get(userId) as { assets: number; liabilities: number };
@@ -8129,52 +8074,71 @@ export default function Login({ onLogin, onRegister }: Props) {
 --------------------------------------------------------------------------------
 ARQUIVO: frontend\src\components\Onboarding.tsx
 --------------------------------------------------------------------------------
-import { useState } from 'react'
-import { Check, Plus, TrendingUp } from 'lucide-react'
+import { useState } from 'react';
+import { Check, Plus, TrendingUp } from 'lucide-react';
 
 interface Props {
-  onComplete: () => void
+  onComplete: () => void;
 }
 
 const defaultCategories = [
-  'Alimentação', 'Transporte', 'Moradia', 'Saúde', 'Lazer', 'Educação',
-  'Salário', 'Freelance', 'Investimentos', 'Vestuário', 'Utilidades',
-]
+  'Alimentação',
+  'Transporte',
+  'Moradia',
+  'Saúde',
+  'Lazer',
+  'Educação',
+  'Salário',
+  'Freelance',
+  'Investimentos',
+  'Vestuário',
+  'Utilidades',
+];
 
 export default function Onboarding({ onComplete }: Props) {
-  const [step, setStep] = useState(1)
-  const [currency, setCurrency] = useState('BRL')
-  const [dateFormat, setDateFormat] = useState('DD/MM/AAAA')
+  const [step, setStep] = useState(1);
+  const [currency, setCurrency] = useState('BRL');
+  const [dateFormat, setDateFormat] = useState('DD/MM/AAAA');
   const [accounts, setAccounts] = useState([
     { name: 'Carteira', type: 'cash', balance: '0' },
     { name: 'Conta Corrente', type: 'checking', balance: '0' },
-  ])
-  const [selectedCats, setSelectedCats] = useState<string[]>(defaultCategories)
-  const [newAccount, setNewAccount] = useState({ name: '', type: 'checking', balance: '' })
-  const [showNewAccount, setShowNewAccount] = useState(false)
+  ]);
+  const [selectedCats, setSelectedCats] = useState<string[]>(defaultCategories);
+  const [newAccount, setNewAccount] = useState({ name: '', type: 'checking', balance: '' });
+  const [showNewAccount, setShowNewAccount] = useState(false);
 
   const toggleCat = (cat: string) => {
-    setSelectedCats(prev => prev.includes(cat) ? prev.filter(c => c !== cat) : [...prev, cat])
-  }
+    setSelectedCats((prev) =>
+      prev.includes(cat) ? prev.filter((c) => c !== cat) : [...prev, cat]
+    );
+  };
 
   const addAccount = () => {
     if (newAccount.name) {
-      setAccounts(prev => [...prev, { ...newAccount }])
-      setNewAccount({ name: '', type: 'checking', balance: '' })
-      setShowNewAccount(false)
+      setAccounts((prev) => [...prev, { ...newAccount }]);
+      setNewAccount({ name: '', type: 'checking', balance: '' });
+      setShowNewAccount(false);
     }
-  }
+  };
 
-  const steps = ['Configurações', 'Contas', 'Categorias', 'Resumo']
+  const steps = ['Configurações', 'Contas', 'Categorias', 'Resumo'];
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-start pt-16 px-4" style={{ background: 'radial-gradient(ellipse at 50% 0%, #0e1a2e 0%, #07090d 60%)' }}>
+    <div
+      className="min-h-screen flex flex-col items-center justify-start pt-16 px-4"
+      style={{ background: 'radial-gradient(ellipse at 50% 0%, #0e1a2e 0%, #07090d 60%)' }}
+    >
       {/* Brand */}
       <div className="flex items-center gap-2 mb-8">
-        <div className="w-8 h-8 rounded-lg flex items-center justify-center" style={{ background: 'var(--primary)' }}>
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center"
+          style={{ background: 'var(--primary)' }}
+        >
           <TrendingUp size={16} color="#fff" />
         </div>
-        <span className="text-lg font-bold" style={{ letterSpacing: '-0.03em' }}>Sertin</span>
+        <span className="text-lg font-bold" style={{ letterSpacing: '-0.03em' }}>
+          Sertin
+        </span>
       </div>
 
       {/* Progress */}
@@ -8185,40 +8149,76 @@ export default function Onboarding({ onComplete }: Props) {
               <div
                 className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold transition-all"
                 style={{
-                  background: i + 1 < step ? 'var(--primary)' : i + 1 === step ? 'var(--primary)' : 'var(--secondary)',
+                  background:
+                    i + 1 < step
+                      ? 'var(--primary)'
+                      : i + 1 === step
+                        ? 'var(--primary)'
+                        : 'var(--secondary)',
                   color: i + 1 <= step ? '#fff' : 'var(--muted-foreground)',
                   opacity: i + 1 < step ? 0.8 : 1,
                 }}
               >
                 {i + 1 < step ? <Check size={12} /> : i + 1}
               </div>
-              <span className="text-xs hidden sm:block" style={{ color: i + 1 === step ? 'var(--foreground)' : 'var(--muted-foreground)' }}>{s}</span>
+              <span
+                className="text-xs hidden sm:block"
+                style={{ color: i + 1 === step ? 'var(--foreground)' : 'var(--muted-foreground)' }}
+              >
+                {s}
+              </span>
             </div>
             {i < steps.length - 1 && (
-              <div className="w-8 sm:w-16 h-px mx-2" style={{ background: i + 1 < step ? 'var(--primary)' : 'var(--border)' }} />
+              <div
+                className="w-8 sm:w-16 h-px mx-2"
+                style={{ background: i + 1 < step ? 'var(--primary)' : 'var(--border)' }}
+              />
             )}
           </div>
         ))}
       </div>
 
       {/* Card */}
-      <div className="w-full max-w-lg rounded-xl p-8" style={{ background: 'var(--card)', border: '1px solid var(--border)' }}>
+      <div
+        className="w-full max-w-lg rounded-xl p-8"
+        style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+      >
         {step === 1 && (
           <>
             <h2 className="text-lg font-semibold mb-1">Bem-vindo ao Sertin!</h2>
-            <p className="text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>Configure as preferências básicas do sistema</p>
+            <p className="text-sm mb-6" style={{ color: 'var(--muted-foreground)' }}>
+              Configure as preferências básicas do sistema
+            </p>
             <div className="flex flex-col gap-4">
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium" style={{ color: 'var(--secondary-foreground)' }}>Moeda padrão</label>
-                <select value={currency} onChange={e => setCurrency(e.target.value)} className="w-full">
+                <label
+                  className="text-sm font-medium"
+                  style={{ color: 'var(--secondary-foreground)' }}
+                >
+                  Moeda padrão
+                </label>
+                <select
+                  value={currency}
+                  onChange={(e) => setCurrency(e.target.value)}
+                  className="w-full"
+                >
                   <option value="BRL">R$ — Real Brasileiro (BRL)</option>
                   <option value="USD">$ — Dólar Americano (USD)</option>
                   <option value="EUR">€ — Euro (EUR)</option>
                 </select>
               </div>
               <div className="flex flex-col gap-1.5">
-                <label className="text-sm font-medium" style={{ color: 'var(--secondary-foreground)' }}>Formato de data</label>
-                <select value={dateFormat} onChange={e => setDateFormat(e.target.value)} className="w-full">
+                <label
+                  className="text-sm font-medium"
+                  style={{ color: 'var(--secondary-foreground)' }}
+                >
+                  Formato de data
+                </label>
+                <select
+                  value={dateFormat}
+                  onChange={(e) => setDateFormat(e.target.value)}
+                  className="w-full"
+                >
                   <option value="DD/MM/AAAA">DD/MM/AAAA (28/07/2025)</option>
                   <option value="MM/DD/AAAA">MM/DD/AAAA (07/28/2025)</option>
                 </select>
@@ -8230,36 +8230,84 @@ export default function Onboarding({ onComplete }: Props) {
         {step === 2 && (
           <>
             <h2 className="text-lg font-semibold mb-1">Suas contas</h2>
-            <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>Adicione as contas onde você movimenta dinheiro</p>
+            <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>
+              Adicione as contas onde você movimenta dinheiro
+            </p>
             <div className="flex flex-col gap-2 mb-4">
               {accounts.map((acc, i) => (
-                <div key={i} className="flex items-center justify-between p-3 rounded-lg" style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}>
+                <div
+                  key={i}
+                  className="flex items-center justify-between p-3 rounded-lg"
+                  style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+                >
                   <div>
                     <p className="text-sm font-medium">{acc.name}</p>
-                    <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>{acc.type === 'checking' ? 'Conta Corrente' : acc.type === 'savings' ? 'Poupança' : acc.type === 'cash' ? 'Dinheiro Físico' : 'Cartão'}</p>
+                    <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      {acc.type === 'checking'
+                        ? 'Conta Corrente'
+                        : acc.type === 'savings'
+                          ? 'Poupança'
+                          : acc.type === 'cash'
+                            ? 'Dinheiro Físico'
+                            : 'Carteira Digital'}
+                    </p>
                   </div>
-                  <span className="text-sm mono" style={{ color: 'var(--muted-foreground)' }}>R$ {acc.balance || '0,00'}</span>
+                  <span className="text-sm mono" style={{ color: 'var(--muted-foreground)' }}>
+                    R$ {acc.balance || '0,00'}
+                  </span>
                 </div>
               ))}
             </div>
             {showNewAccount ? (
-              <div className="p-4 rounded-lg flex flex-col gap-3" style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}>
-                <input className="w-full" placeholder="Nome da conta" value={newAccount.name} onChange={e => setNewAccount(p => ({ ...p, name: e.target.value }))} />
-                <select className="w-full" value={newAccount.type} onChange={e => setNewAccount(p => ({ ...p, type: e.target.value }))}>
+              <div
+                className="p-4 rounded-lg flex flex-col gap-3"
+                style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+              >
+                <input
+                  className="w-full"
+                  placeholder="Nome da conta"
+                  value={newAccount.name}
+                  onChange={(e) => setNewAccount((p) => ({ ...p, name: e.target.value }))}
+                />
+                <select
+                  className="w-full"
+                  value={newAccount.type}
+                  onChange={(e) => setNewAccount((p) => ({ ...p, type: e.target.value }))}
+                >
                   <option value="checking">Conta Corrente</option>
                   <option value="savings">Poupança</option>
                   <option value="cash">Dinheiro Físico</option>
-                  <option value="credit">Cartão de Crédito</option>
                   <option value="digital">Carteira Digital</option>
                 </select>
-                <input className="w-full" placeholder="Saldo inicial (ex: 1500,00)" value={newAccount.balance} onChange={e => setNewAccount(p => ({ ...p, balance: e.target.value }))} />
+                <input
+                  className="w-full"
+                  placeholder="Saldo inicial (ex: 1500,00)"
+                  value={newAccount.balance}
+                  onChange={(e) => setNewAccount((p) => ({ ...p, balance: e.target.value }))}
+                />
                 <div className="flex gap-2">
-                  <button onClick={addAccount} className="flex-1 py-2 rounded-lg text-sm font-medium" style={{ background: 'var(--primary)', color: '#fff' }}>Adicionar</button>
-                  <button onClick={() => setShowNewAccount(false)} className="flex-1 py-2 rounded-lg text-sm" style={{ background: 'var(--border)', color: 'var(--foreground)' }}>Cancelar</button>
+                  <button
+                    onClick={addAccount}
+                    className="flex-1 py-2 rounded-lg text-sm font-medium"
+                    style={{ background: 'var(--primary)', color: '#fff' }}
+                  >
+                    Adicionar
+                  </button>
+                  <button
+                    onClick={() => setShowNewAccount(false)}
+                    className="flex-1 py-2 rounded-lg text-sm"
+                    style={{ background: 'var(--border)', color: 'var(--foreground)' }}
+                  >
+                    Cancelar
+                  </button>
                 </div>
               </div>
             ) : (
-              <button onClick={() => setShowNewAccount(true)} className="w-full py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 transition-opacity hover:opacity-80" style={{ border: '1px dashed var(--border)', color: 'var(--muted-foreground)' }}>
+              <button
+                onClick={() => setShowNewAccount(true)}
+                className="w-full py-2.5 rounded-lg text-sm flex items-center justify-center gap-2 transition-opacity hover:opacity-80"
+                style={{ border: '1px dashed var(--border)', color: 'var(--muted-foreground)' }}
+              >
                 <Plus size={14} /> Adicionar conta
               </button>
             )}
@@ -8269,20 +8317,31 @@ export default function Onboarding({ onComplete }: Props) {
         {step === 3 && (
           <>
             <h2 className="text-lg font-semibold mb-1">Categorias padrão</h2>
-            <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>Desmarque as categorias que não usa</p>
+            <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>
+              Desmarque as categorias que não usa
+            </p>
             <div className="grid grid-cols-2 gap-2">
-              {defaultCategories.map(cat => (
+              {defaultCategories.map((cat) => (
                 <button
                   key={cat}
                   onClick={() => toggleCat(cat)}
                   className="flex items-center gap-2 p-2.5 rounded-lg text-sm text-left transition-all"
                   style={{
-                    background: selectedCats.includes(cat) ? 'rgba(16,185,129,0.1)' : 'var(--secondary)',
+                    background: selectedCats.includes(cat)
+                      ? 'rgba(16,185,129,0.1)'
+                      : 'var(--secondary)',
                     border: `1px solid ${selectedCats.includes(cat) ? 'var(--primary)' : 'var(--border)'}`,
-                    color: selectedCats.includes(cat) ? 'var(--primary)' : 'var(--secondary-foreground)',
+                    color: selectedCats.includes(cat)
+                      ? 'var(--primary)'
+                      : 'var(--secondary-foreground)',
                   }}
                 >
-                  <div className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0" style={{ background: selectedCats.includes(cat) ? 'var(--primary)' : 'var(--border)' }}>
+                  <div
+                    className="w-4 h-4 rounded flex items-center justify-center shrink-0"
+                    style={{
+                      background: selectedCats.includes(cat) ? 'var(--primary)' : 'var(--border)',
+                    }}
+                  >
                     {selectedCats.includes(cat) && <Check size={10} color="#fff" />}
                   </div>
                   {cat}
@@ -8295,16 +8354,27 @@ export default function Onboarding({ onComplete }: Props) {
         {step === 4 && (
           <>
             <h2 className="text-lg font-semibold mb-1">Tudo pronto!</h2>
-            <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>Revise suas configurações antes de começar</p>
+            <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>
+              Revise suas configurações antes de começar
+            </p>
             <div className="flex flex-col gap-3">
               {[
                 { label: 'Moeda', value: currency },
                 { label: 'Formato de data', value: dateFormat },
                 { label: 'Contas criadas', value: `${accounts.length} conta(s)` },
-                { label: 'Categorias ativas', value: `${selectedCats.length} de ${defaultCategories.length}` },
+                {
+                  label: 'Categorias ativas',
+                  value: `${selectedCats.length} de ${defaultCategories.length}`,
+                },
               ].map(({ label, value }) => (
-                <div key={label} className="flex justify-between items-center p-3 rounded-lg" style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}>
-                  <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>{label}</span>
+                <div
+                  key={label}
+                  className="flex justify-between items-center p-3 rounded-lg"
+                  style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+                >
+                  <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+                    {label}
+                  </span>
                   <span className="text-sm font-medium">{value}</span>
                 </div>
               ))}
@@ -8316,15 +8386,19 @@ export default function Onboarding({ onComplete }: Props) {
         <div className="flex gap-3 mt-6">
           {step > 1 && (
             <button
-              onClick={() => setStep(s => s - 1)}
+              onClick={() => setStep((s) => s - 1)}
               className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-opacity hover:opacity-80"
-              style={{ background: 'var(--secondary)', color: 'var(--foreground)', border: '1px solid var(--border)' }}
+              style={{
+                background: 'var(--secondary)',
+                color: 'var(--foreground)',
+                border: '1px solid var(--border)',
+              }}
             >
               Voltar
             </button>
           )}
           <button
-            onClick={() => step < 4 ? setStep(s => s + 1) : onComplete()}
+            onClick={() => (step < 4 ? setStep((s) => s + 1) : onComplete())}
             className="flex-1 py-2.5 rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
             style={{ background: 'var(--primary)', color: '#fff' }}
           >
@@ -8334,12 +8408,16 @@ export default function Onboarding({ onComplete }: Props) {
       </div>
 
       {step < 4 && (
-        <button className="mt-4 text-sm transition-opacity hover:opacity-70" style={{ color: 'var(--muted-foreground)' }} onClick={() => setStep(s => s + 1)}>
+        <button
+          className="mt-4 text-sm transition-opacity hover:opacity-70"
+          style={{ color: 'var(--muted-foreground)' }}
+          onClick={() => setStep((s) => s + 1)}
+        >
           Pular esta etapa
         </button>
       )}
     </div>
-  )
+  );
 }
 
 
@@ -9409,7 +9487,6 @@ export default function Transactions() {
     setShowModal(true);
   };
 
-  // Lista combinada para o seletor de conta/cartão
   const combinedSources = [
     ...accounts.map((a) => ({ ...a, sourceType: 'account' as const })),
     ...creditCards.map((c) => ({
@@ -10032,60 +10109,46 @@ export default function Transactions() {
                 )}
               </div>
 
-              {/* Parcelas para cartão de crédito - mantido, mas agora usando accountId ou creditCardId */}
-              {editTx.type === 'expense' &&
-                (() => {
-                  const isCreditAccount =
-                    editTx.accountId &&
-                    accounts.find((a) => a.id === editTx.accountId)?.type === 'credit';
-                  const isCreditCard = !!editTx.creditCardId;
-                  return (
-                    (isCreditAccount || isCreditCard) && (
-                      <div
-                        className="flex items-center gap-3 p-3 rounded-lg"
-                        style={{
-                          background: 'var(--secondary)',
-                          border: '1px solid var(--border)',
-                        }}
-                      >
-                        <div className="flex flex-col gap-1 flex-1">
-                          <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                            Parcelas
-                          </label>
-                          <input
-                            type="number"
-                            min={1}
-                            max={24}
-                            value={installments}
-                            onChange={(e) => {
-                              const val = parseInt(e.target.value) || 1;
-                              setInstallments(val);
-                              setEditTx((p) => ({
-                                ...p,
-                                installment_total: val,
-                                installment_current: 1,
-                              }));
-                            }}
-                            className="w-full"
-                          />
-                        </div>
-                        <div className="flex flex-col gap-1 flex-1">
-                          <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                            Valor por parcela
-                          </label>
-                          <p
-                            className="text-sm mono font-semibold mt-2"
-                            style={{ color: 'var(--primary)' }}
-                          >
-                            {installments > 1
-                              ? formatBRL((editTx.amount || 0) / installments)
-                              : '—'}
-                          </p>
-                        </div>
-                      </div>
-                    )
-                  );
-                })()}
+              {/* Parcelas - agora apenas se creditCardId estiver preenchido */}
+              {editTx.type === 'expense' && editTx.creditCardId && (
+                <div
+                  className="flex items-center gap-3 p-3 rounded-lg"
+                  style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+                >
+                  <div className="flex flex-col gap-1 flex-1">
+                    <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      Parcelas
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      max={24}
+                      value={installments}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value) || 1;
+                        setInstallments(val);
+                        setEditTx((p) => ({
+                          ...p,
+                          installment_total: val,
+                          installment_current: 1,
+                        }));
+                      }}
+                      className="w-full"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1 flex-1">
+                    <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      Valor por parcela
+                    </label>
+                    <p
+                      className="text-sm mono font-semibold mt-2"
+                      style={{ color: 'var(--primary)' }}
+                    >
+                      {installments > 1 ? formatBRL((editTx.amount || 0) / installments) : '—'}
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
@@ -10518,14 +10581,11 @@ export interface Account {
   id: number;
   user_id: number;
   name: string;
-  type: 'checking' | 'savings' | 'cash' | 'credit' | 'digital';
+  type: 'checking' | 'savings' | 'cash' | 'digital';
   balance: number;
   color: string;
   institution: string;
   icon: string;
-  limit_amount?: number;
-  closing_day?: number;
-  due_day?: number;
   status: 'active' | 'inactive';
   created_at: string;
   updated_at: string;
@@ -10541,7 +10601,10 @@ export const accountService = {
     return api.get<Account>(`/accounts/${id}`, token);
   },
 
-  async create(data: Omit<Account, 'id' | 'user_id' | 'created_at' | 'updated_at'>, token: string): Promise<Account> {
+  async create(
+    data: Omit<Account, 'id' | 'user_id' | 'created_at' | 'updated_at'>,
+    token: string
+  ): Promise<Account> {
     return api.post<Account>('/accounts', data, token);
   },
 
@@ -10553,10 +10616,16 @@ export const accountService = {
     return api.delete<{ message: string }>(`/accounts/${id}`, token);
   },
 
-  async getNetWorth(token: string): Promise<{ assets: number; liabilities: number; netWorth: number }> {
-    return api.get<{ assets: number; liabilities: number; netWorth: number }>('/accounts/net-worth', token);
-  }
+  async getNetWorth(
+    token: string
+  ): Promise<{ assets: number; liabilities: number; netWorth: number }> {
+    return api.get<{ assets: number; liabilities: number; netWorth: number }>(
+      '/accounts/net-worth',
+      token
+    );
+  },
 };
+
 
 --------------------------------------------------------------------------------
 ARQUIVO: frontend\src\services\api.ts

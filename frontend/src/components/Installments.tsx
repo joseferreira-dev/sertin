@@ -68,6 +68,12 @@ export default function Installments() {
     })),
   ];
 
+  const selectedSourceValue = (() => {
+    if (form.account_id) return `account-${form.account_id}`;
+    if (form.credit_card_id) return `credit_card-${form.credit_card_id}`;
+    return '';
+  })();
+
   const loadData = async () => {
     if (!token) return;
     try {
@@ -226,24 +232,6 @@ export default function Installments() {
       </div>
     );
   }
-
-  // Função para renderizar categorias com subcategorias
-  const renderCategoryOptions = (cats: Category[], depth = 0) => {
-    let options: JSX.Element[] = [];
-    for (const cat of cats) {
-      const indent = '  '.repeat(depth);
-      options.push(
-        <option key={cat.id} value={cat.id}>
-          {indent}
-          {cat.name}
-        </option>
-      );
-      if (cat.children && cat.children.length > 0) {
-        options = options.concat(renderCategoryOptions(cat.children, depth + 1));
-      }
-    }
-    return options;
-  };
 
   return (
     <div className="max-w-7xl mx-auto">
@@ -472,7 +460,7 @@ export default function Installments() {
                     Conta/Cartão *
                   </label>
                   <select
-                    value={form.account_id || form.credit_card_id || ''}
+                    value={selectedSourceValue}
                     onChange={(e) => {
                       const val = e.target.value;
                       if (!val) {
