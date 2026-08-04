@@ -1,4 +1,5 @@
 import db from '../config/database';
+import { GoalContribution, IGoalContribution } from './GoalContribution';
 
 export interface IGoal {
   id?: number;
@@ -15,7 +16,6 @@ export interface IGoal {
   annual_yield?: number;
   created_at?: string;
   updated_at?: string;
-  // calculado
   current_amount?: number;
   progress?: number;
   days_remaining?: number | null;
@@ -180,5 +180,52 @@ export class Goal {
 
   static unarchive(id: number, userId: number): void {
     this.update(id, userId, { status: 'active' });
+  }
+
+  // Adicione estes métodos à classe Goal existente
+
+  static addContribution(
+    goalId: number,
+    userId: number,
+    amount: number,
+    date?: string,
+    note?: string
+  ): void {
+    const goal = this.findById(goalId, userId);
+    if (!goal) throw new Error('Meta não encontrada');
+
+    const newCurrent = goal.current_amount + amount;
+    if (newCurrent < 0) throw new Error('Saldo não pode ficar negativo');
+
+    const insertContribution = db.prepare(`
+    INSERT INTO goal_contributions (goal_id, amount, date, note)
+    VALUES (?, ?, ?, ?)
+  `);
+    const updateGoal = db.prepare(`
+    UPDATE goals SET current_amount = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE id = ? AND user_id = ?
+  `);
+
+    const transaction = db.transaction(() => {
+      insertContribution.run(
+        goalId,
+        amount,
+        date || new Date().toISOString().slice(0, 10),
+        note || null
+      );
+      updateGoal.run(newCurrent, goalId, userId);
+    });
+
+    transaction();
+    console.log(
+      `Contribuição registrada: meta ${goalId}, valor ${amount}, novo saldo ${newCurrent}`
+    );
+  }
+
+  static getContributions(goalId: number, userId: number): IGoalContribution[] {
+    // Verifica se a meta pertence ao usuário
+    const goal = this.findById(goalId, userId);
+    if (!goal) throw new Error('Meta não encontrada');
+    return GoalContribution.findByGoal(goalId);
   }
 }

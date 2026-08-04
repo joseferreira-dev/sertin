@@ -183,4 +183,57 @@ export const goalController = {
       res.status(500).json({ error: 'Erro ao desarquivar meta' });
     }
   },
+
+  async addContribution(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user!.id;
+      const goalId = parseInt(String(req.params.id));
+      if (isNaN(goalId)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const { newTotal, amount, date, note } = req.body;
+      let diff: number;
+
+      if (newTotal !== undefined) {
+        const total = parseFloat(newTotal);
+        if (isNaN(total)) return res.status(400).json({ error: 'newTotal inválido' });
+        const goal = Goal.findById(goalId, userId);
+        if (!goal) return res.status(404).json({ error: 'Meta não encontrada' });
+        diff = total - goal.current_amount;
+      } else if (amount !== undefined) {
+        diff = parseFloat(amount);
+        if (isNaN(diff)) return res.status(400).json({ error: 'amount inválido' });
+      } else {
+        return res.status(400).json({ error: 'Forneça newTotal ou amount' });
+      }
+
+      if (diff === 0) {
+        const goal = Goal.findById(goalId, userId);
+        return res.json({ message: 'Nenhuma alteração no saldo', goal });
+      }
+
+      Goal.addContribution(goalId, userId, diff, date, note);
+      const updatedGoal = Goal.findById(goalId, userId);
+      res.json(updatedGoal);
+    } catch (error: any) {
+      console.error('Erro ao adicionar contribuição:', error);
+      res.status(500).json({ error: error.message || 'Erro ao adicionar contribuição' });
+    }
+  },
+
+  async getContributions(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user!.id;
+      const goalId = parseInt(String(req.params.id));
+      if (isNaN(goalId)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+      const contributions = Goal.getContributions(goalId, userId);
+      res.json(contributions);
+    } catch (error: any) {
+      console.error('Erro ao buscar contribuições:', error);
+      res.status(500).json({ error: error.message || 'Erro ao buscar contribuições' });
+    }
+  },
 };

@@ -20,6 +20,15 @@ export interface Goal {
   updated_at: string;
 }
 
+export interface GoalContribution {
+  id: number;
+  goal_id: number;
+  amount: number;
+  date: string;
+  note?: string;
+  created_at: string;
+}
+
 export const goalService = {
   async getAll(
     token: string,
@@ -50,7 +59,6 @@ export const goalService = {
     >,
     token: string
   ): Promise<Goal> {
-    // Garantir que current_amount comece com 0
     const payload = { ...data, current_amount: 0 };
     return api.post<Goal>('/goals', payload, token);
   },
@@ -65,5 +73,17 @@ export const goalService = {
 
   async delete(id: number, token: string): Promise<{ message: string }> {
     return api.delete<{ message: string }>(`/goals/${id}`, token);
+  },
+
+  async addContribution(
+    id: number,
+    data: { newTotal?: number; amount?: number; date?: string; note?: string },
+    token: string
+  ): Promise<Goal> {
+    return api.post<Goal>(`/goals/${id}/contributions`, data, token);
+  },
+
+  async getContributions(id: number, token: string): Promise<GoalContribution[]> {
+    return api.get<GoalContribution[]>(`/goals/${id}/contributions`, token);
   },
 };

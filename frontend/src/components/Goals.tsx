@@ -10,10 +10,11 @@ import {
   Columns,
   Archive,
   RotateCcw,
+  History,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { formatBRL } from '../data/mock';
-import { goalService, Goal } from '../services/goalService';
+import { goalService, Goal, GoalContribution } from '../services/goalService';
 
 type GoalStatus = 'active' | 'completed' | 'delayed' | 'archived';
 type GoalPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -56,8 +57,10 @@ export default function Goals() {
   const [showModal, setShowModal] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [detailGoal, setDetailGoal] = useState<Goal | null>(null);
-  const [detailTab, setDetailTab] = useState<'overview' | 'settings'>('overview');
+  const [detailTab, setDetailTab] = useState<'overview' | 'history' | 'settings'>('overview');
   const [showArchived, setShowArchived] = useState(false);
+  const [contributions, setContributions] = useState<GoalContribution[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
 
   const [form, setForm] = useState({
     name: '',
@@ -183,9 +186,40 @@ export default function Goals() {
     }
   };
 
-  const viewDetails = (goal: Goal) => {
+  const viewDetails = async (goal: Goal) => {
     setDetailGoal(goal);
     setDetailTab('overview');
+    // Carrega histórico ao abrir
+    if (token) {
+      try {
+        setLoadingHistory(true);
+        const data = await goalService.getContributions(goal.id, token);
+        setContributions(data);
+      } catch (err: any) {
+        console.error('Erro ao carregar histórico:', err);
+        setContributions([]);
+      } finally {
+        setLoadingHistory(false);
+      }
+    }
+  };
+
+  const handleUpdateValue = async (goalId: number, newTotal: number) => {
+    if (!token) return;
+    try {
+      await goalService.addContribution(goalId, { newTotal }, token);
+      await loadGoals();
+      // Atualiza o modal se estiver aberto
+      if (detailGoal && detailGoal.id === goalId) {
+        const updated = await goalService.getOne(goalId, token);
+        setDetailGoal(updated);
+        // Recarrega histórico
+        const hist = await goalService.getContributions(goalId, token);
+        setContributions(hist);
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
   };
 
   if (loading) {
@@ -301,7 +335,7 @@ export default function Goals() {
           return (
             <div
               key={goal.id}
-              className={`rounded-xl p-5 group transition-all ${!isArchivedGoal ? 'cursor-pointer hover:translate-y-[-1px]' : 'opacity-70'}`}
+              className={`rounded-xl p-5 group transition-all ${!isArchivedGoal ? 'cursor-pointer hover:-translate-y-px' : 'opacity-70'}`}
               style={{
                 background: 'var(--card)',
                 border: `1px solid ${isArchivedGoal ? 'rgba(99,102,241,0.2)' : 'var(--border)'}`,
@@ -413,7 +447,6 @@ export default function Goals() {
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      // Editar current_amount (aporte manual)
                       const newAmount = prompt(
                         'Digite o novo valor acumulado (R$):',
                         String(goal.current_amount)
@@ -421,10 +454,7 @@ export default function Goals() {
                       if (newAmount !== null) {
                         const val = parseFloat(newAmount.replace(',', '.'));
                         if (!isNaN(val) && val >= 0) {
-                          goalService
-                            .update(goal.id, { current_amount: val }, token!)
-                            .then(() => loadGoals())
-                            .catch((err) => alert(err.message));
+                          handleUpdateValue(goal.id, val);
                         }
                       }
                     }}
@@ -685,6 +715,7 @@ export default function Goals() {
             <div className="flex gap-4 px-6 pt-4 shrink-0">
               {[
                 ['overview', 'Visão Geral'],
+                ['history', 'Histórico'],
                 ['settings', 'Ajustes'],
               ].map(([t, l]) => (
                 <button
@@ -789,19 +820,18 @@ export default function Goals() {
                       <button
                         className="px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
                         style={{ background: 'var(--primary)', color: '#fff' }}
-                        onClick={() => {
+                        onClick={async () => {
                           const input = document.getElementById(
                             'goal-current-amount'
                           ) as HTMLInputElement;
                           const val = parseFloat(input.value.replace(',', '.'));
                           if (!isNaN(val) && val >= 0) {
-                            goalService
-                              .update(detailGoal.id, { current_amount: val }, token!)
-                              .then(() => {
-                                loadGoals();
-                                setDetailGoal(null);
-                              })
-                              .catch((err) => alert(err.message));
+                            await handleUpdateValue(detailGoal.id, val);
+                            // Recarrega detalhe e histórico
+                            const updated = await goalService.getOne(detailGoal.id, token!);
+                            setDetailGoal(updated);
+                            const hist = await goalService.getContributions(detailGoal.id, token!);
+                            setContributions(hist);
                           }
                         }}
                       >
@@ -809,6 +839,51 @@ export default function Goals() {
                       </button>
                     </div>
                   </div>
+                </div>
+              )}
+
+              {detailTab === 'history' && (
+                <div className="flex flex-col gap-3">
+                  <h3 className="text-sm font-semibold">Histórico de Aportes</h3>
+                  {loadingHistory ? (
+                    <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      Carregando...
+                    </p>
+                  ) : contributions.length === 0 ? (
+                    <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      Nenhuma contribuição registrada ainda.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {contributions.map((c) => (
+                        <div
+                          key={c.id}
+                          className="flex items-center justify-between p-3 rounded-lg"
+                          style={{
+                            background: 'var(--secondary)',
+                            border: '1px solid var(--border)',
+                          }}
+                        >
+                          <div>
+                            <p className="text-xs font-medium">
+                              {c.amount > 0 ? 'Aporte' : 'Resgate'}
+                            </p>
+                            <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                              {c.date.split('-').reverse().join('/')}
+                              {c.note && ` · ${c.note}`}
+                            </p>
+                          </div>
+                          <span
+                            className="text-sm mono font-semibold"
+                            style={{ color: c.amount > 0 ? 'var(--primary)' : 'var(--danger)' }}
+                          >
+                            {c.amount > 0 ? '+' : ''}
+                            {formatBRL(c.amount)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
 
