@@ -187,6 +187,56 @@ export function seed() {
       }
     }
 
+    // 6. Metas de exemplo
+    const sampleGoals = [
+      {
+        name: 'Fundo de Emergência',
+        type: 'emergency',
+        target_amount: 12000,
+        current_amount: 4500,
+        color: '#3b82f6',
+        icon: '🛡️',
+        priority: 'urgent',
+        target_date: '2026-12-31',
+        description: 'Reserva para 6 meses de despesas',
+      },
+      {
+        name: 'Viagem para Europa',
+        type: 'travel',
+        target_amount: 15000,
+        current_amount: 3200,
+        color: '#f59e0b',
+        icon: '✈️',
+        priority: 'high',
+        target_date: '2026-07-15',
+        description: 'Pacote de viagem + gastos',
+      },
+    ];
+
+    const goalStmt = db.prepare(`
+      INSERT INTO goals (
+        user_id, name, type, target_amount, current_amount, color, icon,
+        priority, status, target_date, description, annual_yield
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const g of sampleGoals) {
+      goalStmt.run(
+        userId,
+        g.name,
+        g.type,
+        g.target_amount,
+        g.current_amount,
+        g.color,
+        g.icon,
+        g.priority,
+        'active',
+        g.target_date,
+        g.description,
+        0
+      );
+    }
+
     console.log('✅ Dados iniciais inseridos com sucesso!');
   } catch (error) {
     console.error('Erro ao executar seed:', error);
