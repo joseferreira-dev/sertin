@@ -164,6 +164,29 @@ export function seed() {
       tagStmt.run(userId, tag.name, tag.color, tag.description);
     }
 
+    // 5. Orçamentos de exemplo
+    const sampleBudgets = [
+      { category: 'Moradia', amount: 2800 },
+      { category: 'Alimentação', amount: 800 },
+      { category: 'Saúde', amount: 600 },
+      { category: 'Transporte', amount: 400 },
+      { category: 'Lazer', amount: 300 },
+      { category: 'Educação', amount: 200 },
+    ];
+
+    const budgetStmt = db.prepare(`
+      INSERT INTO budgets (user_id, category_id, month, budgeted_amount)
+      VALUES (?, ?, ?, ?)
+    `);
+    const currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+
+    for (const sb of sampleBudgets) {
+      const catId = parentIds[sb.category];
+      if (catId) {
+        budgetStmt.run(userId, catId, currentMonth, sb.amount);
+      }
+    }
+
     console.log('✅ Dados iniciais inseridos com sucesso!');
   } catch (error) {
     console.error('Erro ao executar seed:', error);
