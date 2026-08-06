@@ -14,5 +14,6 @@ router.patch('/:id/archive', goalController.archive);
 router.patch('/:id/unarchive', goalController.unarchive);
 router.post('/:id/contributions', goalController.addContribution);
 router.get('/:id/contributions', goalController.getContributions);
+router.post('/:id/complete', goalController.completeGoal);
 
 export default router;

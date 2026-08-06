@@ -19,6 +19,7 @@ import {
   Plus,
   CreditCard,
   CreditCardIcon,
+  PiggyBank,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -28,6 +29,7 @@ export type Page =
   | 'installments'
   | 'accounts'
   | 'credit-cards'
+  | 'jars'
   | 'categories'
   | 'tags'
   | 'budgets'
@@ -48,6 +50,7 @@ const nav = [
   { id: 'transactions', label: 'Extrato', Icon: ListOrdered },
   { id: 'installments', label: 'Parcelamentos', Icon: CreditCard },
   { id: 'accounts', label: 'Contas', Icon: Wallet },
+  { id: 'jars', label: 'Caixinhas', Icon: PiggyBank },
   { id: 'credit-cards', label: 'Cartões', Icon: CreditCardIcon },
   { id: 'categories', label: 'Categorias', Icon: Tag },
   { id: 'tags', label: 'Etiquetas', Icon: Bookmark },
@@ -87,7 +90,7 @@ export default function Layout({ currentPage, onNavigate, onLogout, children }: 
     <div className="flex min-h-screen" style={{ background: 'var(--background)' }}>
       {/* Sidebar */}
       <aside
-        className="flex flex-col h-screen sticky top-0 transition-all duration-200 flex-shrink-0"
+        className="flex flex-col h-screen sticky top-0 transition-all duration-200 shrink-0"
         style={{
           width: collapsed ? 58 : 220,
           background: 'var(--card)',
@@ -96,11 +99,11 @@ export default function Layout({ currentPage, onNavigate, onLogout, children }: 
       >
         {/* Logo */}
         <div
-          className="flex items-center gap-2.5 px-4 h-14 border-b flex-shrink-0"
+          className="flex items-center gap-2.5 px-4 h-14 border-b shrink-0"
           style={{ borderColor: 'var(--border)' }}
         >
           <div
-            className="w-7 h-7 rounded-md flex items-center justify-center flex-shrink-0"
+            className="w-7 h-7 rounded-md flex items-center justify-center shrink-0"
             style={{ background: 'var(--primary)' }}
           >
             <TrendingUp size={14} color="#fff" />
@@ -131,7 +134,7 @@ export default function Layout({ currentPage, onNavigate, onLogout, children }: 
                 }}
                 title={collapsed ? label : undefined}
               >
-                <Icon size={15} className="flex-shrink-0" />
+                <Icon size={15} className="shrink-0" />
                 {!collapsed && <span>{label}</span>}
               </button>
             );
@@ -139,10 +142,10 @@ export default function Layout({ currentPage, onNavigate, onLogout, children }: 
         </nav>
 
         {/* User */}
-        <div className="border-t p-3 flex-shrink-0" style={{ borderColor: 'var(--border)' }}>
+        <div className="border-t p-3 shrink-0" style={{ borderColor: 'var(--border)' }}>
           <div className="flex items-center gap-2.5">
             <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0"
+              className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0"
               style={{ background: 'var(--primary)', color: '#fff' }}
             >
               {initials}

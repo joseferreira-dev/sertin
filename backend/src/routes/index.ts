@@ -9,6 +9,7 @@ import tagRoutes from './tags';
 import budgetRoutes from './budgets';
 import goalRoutes from './goals';
 import reportRoutes from './reports';
+import jarRoutes from './jars';
 
 const router = Router();
 
@@ -22,5 +23,6 @@ router.use('/tags', tagRoutes);
 router.use('/budgets', budgetRoutes);
 router.use('/goals', goalRoutes);
 router.use('/reports', reportRoutes);
+router.use('/jars', jarRoutes);
 
 export default router;

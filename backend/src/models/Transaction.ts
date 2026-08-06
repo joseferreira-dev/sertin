@@ -4,9 +4,11 @@ export interface ITransaction {
   id?: number;
   user_id: number;
   account_id?: number | null;
+  jar_id?: number | null;
+  dest_account_id?: number | null;
+  dest_jar_id?: number | null;
   credit_card_id?: number | null;
   category_id?: number | null;
-  dest_account_id?: number | null;
   type: 'income' | 'expense' | 'transfer';
   amount: number;
   description: string;
@@ -27,18 +29,19 @@ export class Transaction {
   static create(data: Omit<ITransaction, 'id' | 'created_at' | 'updated_at'>): number {
     const stmt = db.prepare(`
       INSERT INTO transactions (
-        user_id, account_id, credit_card_id, category_id, dest_account_id, type, amount,
-        description, date, status, installment_total, installment_current,
+        user_id, account_id, jar_id, dest_account_id, dest_jar_id, credit_card_id, category_id,
+        type, amount, description, date, status, installment_total, installment_current,
         recurring_id, meta_id, attachment_path, installment_id, installment_number
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       data.user_id,
       data.account_id || null,
+      data.jar_id || null,
+      data.dest_account_id || null,
+      data.dest_jar_id || null,
       data.credit_card_id || null,
       data.category_id || null,
-      data.dest_account_id || null,
       data.type,
       data.amount,
       data.description,
@@ -55,6 +58,11 @@ export class Transaction {
     return info.lastInsertRowid as number;
   }
 
+  static findById(id: number, userId: number): ITransaction | undefined {
+    const stmt = db.prepare('SELECT * FROM transactions WHERE id = ? AND user_id = ?');
+    return stmt.get(id, userId) as ITransaction | undefined;
+  }
+
   static findByUser(userId: number, filters?: any): ITransaction[] {
     let sql = 'SELECT * FROM transactions WHERE user_id = ?';
     const params: any[] = [userId];
@@ -68,8 +76,12 @@ export class Transaction {
         params.push(filters.endDate);
       }
       if (filters.accountId) {
-        sql += ' AND account_id = ?';
-        params.push(filters.accountId);
+        sql += ' AND (account_id = ? OR dest_account_id = ?)';
+        params.push(filters.accountId, filters.accountId);
+      }
+      if (filters.jarId) {
+        sql += ' AND (jar_id = ? OR dest_jar_id = ?)';
+        params.push(filters.jarId, filters.jarId);
       }
       if (filters.categoryId) {
         sql += ' AND category_id = ?';
@@ -83,11 +95,6 @@ export class Transaction {
     sql += ' ORDER BY date DESC, id DESC';
     const stmt = db.prepare(sql);
     return stmt.all(...params) as ITransaction[];
-  }
-
-  static findById(id: number, userId: number): ITransaction | undefined {
-    const stmt = db.prepare('SELECT * FROM transactions WHERE id = ? AND user_id = ?');
-    return stmt.get(id, userId) as ITransaction | undefined;
   }
 
   static update(id: number, userId: number, data: Partial<ITransaction>): void {
@@ -156,6 +163,7 @@ export class Transaction {
             WHEN type = 'expense' THEN amount
             WHEN type = 'transfer' AND dest_account_id = ? THEN amount
             WHEN type = 'transfer' AND account_id = ? THEN -amount
+            ELSE 0
           END
         )
         FROM transactions
@@ -164,5 +172,24 @@ export class Transaction {
       WHERE id = ? AND user_id = ?
     `);
     stmt.run(accountId, accountId, accountId, accountId, userId, accountId, userId);
+  }
+
+  static updateJarBalance(jarId: number, userId: number) {
+    const stmt = db.prepare(`
+      UPDATE jars
+      SET balance = COALESCE((
+        SELECT SUM(
+          CASE
+            WHEN type = 'transfer' AND dest_jar_id = ? THEN amount
+            WHEN type = 'transfer' AND jar_id = ? THEN -amount
+            ELSE 0
+          END
+        )
+        FROM transactions
+        WHERE (jar_id = ? OR dest_jar_id = ?) AND user_id = ? AND status = 'confirmed'
+      ), 0)
+      WHERE id = ? AND user_id = ?
+    `);
+    stmt.run(jarId, jarId, jarId, jarId, userId, jarId, userId);
   }
 }

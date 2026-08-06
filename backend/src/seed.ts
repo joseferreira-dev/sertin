@@ -1,5 +1,6 @@
 import db from './config/database';
 import bcrypt from 'bcrypt';
+import { Goal } from './models/Goal';
 
 export function seed() {
   try {
@@ -172,10 +173,8 @@ export function seed() {
       INSERT INTO tags (user_id, name, color, description)
       VALUES (?, ?, ?, ?)
     `);
-    const tagIds: number[] = [];
     for (const tag of tags) {
-      const info = tagStmt.run(userId, tag.name, tag.color, tag.description);
-      tagIds.push(info.lastInsertRowid as number);
+      tagStmt.run(userId, tag.name, tag.color, tag.description);
     }
 
     // 5. Orçamentos de exemplo
@@ -192,7 +191,7 @@ export function seed() {
       INSERT INTO budgets (user_id, category_id, month, budgeted_amount)
       VALUES (?, ?, ?, ?)
     `);
-    const currentMonth = new Date().toISOString().slice(0, 7); // "YYYY-MM"
+    const currentMonth = new Date().toISOString().slice(0, 7);
 
     for (const sb of sampleBudgets) {
       const catId = parentIds[sb.category];
@@ -201,70 +200,79 @@ export function seed() {
       }
     }
 
-    // 6. Metas de exemplo (AGORA COM CRIAÇÃO DE CONTA ASSOCIADA)
-    const sampleGoals = [
+    // 6. Caixinhas
+    const jarStmt = db.prepare(`
+      INSERT INTO jars (user_id, name, balance, color, icon, description, status)
+      VALUES (?, ?, 0, ?, ?, ?, 'active')
+    `);
+    const jarNames = ['Fundo de Emergência', 'Viagem Europa', 'Carro Novo'];
+    const jarColors = ['#3b82f6', '#f59e0b', '#ef4444'];
+    const jarIcons = ['🛡️', '✈️', '🚗'];
+    const jarIds: number[] = [];
+    for (let i = 0; i < jarNames.length; i++) {
+      const info = jarStmt.run(
+        userId,
+        jarNames[i],
+        jarColors[i],
+        jarIcons[i],
+        `Caixinha para ${jarNames[i].toLowerCase()}`
+      );
+      jarIds.push(info.lastInsertRowid as number);
+    }
+
+    // 7. Metas (associadas a caixinhas)
+    const goalStmt = db.prepare(`
+      INSERT INTO goals (
+        user_id, name, jar_id, type, target_amount, color, icon,
+        priority, status, target_date, description, annual_yield
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const goalData = [
       {
         name: 'Fundo de Emergência',
+        jar_id: jarIds[0],
         type: 'emergency',
         target_amount: 12000,
-        current_amount: 4500,
         color: '#3b82f6',
         icon: '🛡️',
         priority: 'urgent',
         target_date: '2026-12-31',
-        description: 'Reserva para 6 meses de despesas',
+        description: 'Reserva para 6 meses',
+        annual_yield: 0,
       },
       {
         name: 'Viagem para Europa',
+        jar_id: jarIds[1],
         type: 'travel',
         target_amount: 15000,
-        current_amount: 3200,
         color: '#f59e0b',
         icon: '✈️',
         priority: 'high',
         target_date: '2026-07-15',
-        description: 'Pacote de viagem + gastos',
+        description: 'Pacote de viagem',
+        annual_yield: 0,
       },
     ];
-
-    const goalStmt = db.prepare(`
-      INSERT INTO goals (
-        user_id, name, type, target_amount, current_amount, color, icon,
-        priority, status, target_date, description, annual_yield
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    // Para criar a conta da meta, usamos a mesma lógica do modelo Goal.create
-    const goalAccountStmt = db.prepare(`
-      INSERT INTO accounts (user_id, name, type, balance, color, icon, goal_id, status)
-      VALUES (?, ?, 'goal', 0, ?, ?, ?, 'active')
-    `);
-
     const goalIds: number[] = [];
-    for (const g of sampleGoals) {
-      // Insere a meta
+    for (const g of goalData) {
       const info = goalStmt.run(
         userId,
         g.name,
+        g.jar_id,
         g.type,
         g.target_amount,
-        g.current_amount,
         g.color,
         g.icon,
         g.priority,
         'active',
         g.target_date,
         g.description,
-        0
+        g.annual_yield
       );
-      const goalId = info.lastInsertRowid as number;
-      goalIds.push(goalId);
-
-      // Cria a conta associada do tipo 'goal'
-      goalAccountStmt.run(userId, g.name, g.color, g.icon || '💰', goalId);
+      goalIds.push(info.lastInsertRowid as number);
     }
 
-    // 7. Transações adicionais (despesas e receitas)
+    // 8. Transações adicionais (despesas e receitas)
     const txnStmt = db.prepare(`
       INSERT INTO transactions (
         user_id, account_id, category_id, type, amount, description, date, status,
@@ -272,7 +280,6 @@ export function seed() {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    // Datas
     const today = new Date();
     const year = today.getFullYear();
     const month = today.getMonth();
@@ -333,9 +340,8 @@ export function seed() {
       }
     }
 
-    // Receitas
-    const incomeDates = [5, 20];
-    for (const day of incomeDates) {
+    // Receitas (salário)
+    for (const day of [5, 20]) {
       const catId = parentIds['Salário'];
       if (catId) {
         txnStmt.run(
@@ -352,6 +358,7 @@ export function seed() {
         );
       }
     }
+    // Freelance
     const freelanceCatId = parentIds['Freelance'];
     if (freelanceCatId) {
       txnStmt.run(
@@ -368,7 +375,7 @@ export function seed() {
       );
     }
 
-    // Transferência
+    // Transferência entre contas
     const transferStmt = db.prepare(`
       INSERT INTO transactions (
         user_id, account_id, dest_account_id, type, amount, description, date, status,
@@ -388,7 +395,7 @@ export function seed() {
       1
     );
 
-    // 8. Parcelamento
+    // 9. Parcelamento
     const installmentStmt = db.prepare(`
       INSERT INTO installments (
         user_id, account_id, credit_card_id, category_id, description, total_amount, installment_count, start_date, status
@@ -407,7 +414,6 @@ export function seed() {
     );
     const installmentId = installmentInfo.lastInsertRowid as number;
 
-    // Gerar parcelas - CORRIGIDO: garantindo 13 placeholders
     const parcelStmt = db.prepare(`
       INSERT INTO transactions (
         user_id, account_id, credit_card_id, category_id, type, amount, description, date, status,
@@ -435,31 +441,46 @@ export function seed() {
         i
       );
     }
-    const updateParcelaStmt = db.prepare(`
-      UPDATE transactions SET status = 'confirmed' WHERE installment_id = ? AND installment_number <= ?
-    `);
-    updateParcelaStmt.run(installmentId, 3);
+    db.prepare(
+      `UPDATE transactions SET status = 'confirmed' WHERE installment_id = ? AND installment_number <= ?`
+    ).run(installmentId, 3);
 
-    // 9. Aportes em metas (contribuições) - usando a tabela goal_contributions
-    const contributionStmt = db.prepare(`
-      INSERT INTO goal_contributions (goal_id, amount, date, note)
-      VALUES (?, ?, ?, ?)
-    `);
-    contributionStmt.run(goalIds[0], 1000, dateStr(5), 'Aporte mensal');
-    contributionStmt.run(goalIds[0], 500, dateStr(20), 'Bônus');
-    contributionStmt.run(goalIds[1], 1500, dateStr(10), 'Poupança viagem');
+    // 10. Aportes para metas usando Goal.addContribution
+    Goal.addContribution(
+      goalIds[0],
+      userId,
+      1000,
+      accountIds[0],
+      dateStr(5),
+      'Aporte mensal',
+      'Aporte para Fundo de Emergência',
+      parentIds['Salário'],
+      []
+    );
+    Goal.addContribution(
+      goalIds[0],
+      userId,
+      500,
+      accountIds[0],
+      dateStr(20),
+      'Bônus',
+      'Bônus extra',
+      parentIds['Salário'],
+      []
+    );
+    Goal.addContribution(
+      goalIds[1],
+      userId,
+      1500,
+      accountIds[0],
+      dateStr(10),
+      'Poupança viagem',
+      'Aporte para Viagem Europa',
+      parentIds['Lazer'],
+      []
+    );
 
-    // Atualizar current_amount das metas (somar aportes)
-    const updateGoalStmt = db.prepare(`
-      UPDATE goals SET current_amount = (
-        SELECT COALESCE(SUM(amount), 0) FROM goal_contributions WHERE goal_id = goals.id
-      ) WHERE id = ?
-    `);
-    for (const gid of goalIds) {
-      updateGoalStmt.run(gid);
-    }
-
-    // 10. Logs
+    // 11. Logs
     const logStmt = db.prepare(`
       INSERT INTO logs (user_id, action, detail, ip)
       VALUES (?, ?, ?, ?)

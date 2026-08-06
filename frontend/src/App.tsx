@@ -12,6 +12,7 @@ import Categories from './components/Categories';
 import Tags from './components/Tags';
 import Budgets from './components/Budgets';
 import Goals from './components/Goals';
+import Jars from './components/Jars';
 import Reports from './components/Reports';
 import Settings from './components/Settings';
 import ImportExport from './components/ImportExport';
@@ -53,6 +54,7 @@ export default function App() {
       {page === 'transactions' && <Transactions />}
       {page === 'installments' && <Installments />}
       {page === 'accounts' && <Accounts />}
+      {page === 'jars' && <Jars />}
       {page === 'credit-cards' && <CreditCards />}
       {page === 'categories' && <Categories />}
       {page === 'tags' && <Tags />}

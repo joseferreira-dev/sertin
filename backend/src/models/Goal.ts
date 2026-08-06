@@ -1,12 +1,14 @@
 import db from '../config/database';
 import { GoalContribution, IGoalContribution } from './GoalContribution';
-import { Account, IAccount } from './Account';
+import { Jar } from './Jar';
+import { Account } from './Account';
 import { Transaction } from './Transaction';
 
 export interface IGoal {
   id?: number;
   user_id: number;
   name: string;
+  jar_id: number;
   type?: 'emergency' | 'opportunity' | 'travel' | 'material' | 'education' | 'investment' | 'free';
   target_amount: number;
   color?: string;
@@ -27,13 +29,14 @@ export class Goal {
   static create(data: Omit<IGoal, 'id' | 'created_at' | 'updated_at'>): number {
     const stmt = db.prepare(`
       INSERT INTO goals (
-        user_id, name, type, target_amount, color, icon,
+        user_id, name, jar_id, type, target_amount, color, icon,
         priority, status, target_date, description, annual_yield
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       data.user_id,
       data.name,
+      data.jar_id,
       data.type || 'free',
       data.target_amount,
       data.color || '#10b981',
@@ -44,15 +47,7 @@ export class Goal {
       data.description || null,
       data.annual_yield || 0
     );
-    const goalId = info.lastInsertRowid as number;
-
-    const accountStmt = db.prepare(`
-      INSERT INTO accounts (user_id, name, type, balance, color, icon, goal_id, status)
-      VALUES (?, ?, 'goal', 0, ?, ?, ?, 'active')
-    `);
-    accountStmt.run(data.user_id, data.name, data.color || '#10b981', data.icon || '💰', goalId);
-
-    return goalId;
+    return info.lastInsertRowid as number;
   }
 
   static findByUser(
@@ -62,18 +57,15 @@ export class Goal {
     let sql = `
       SELECT g.*,
         COALESCE(
-          (SELECT balance
-           FROM accounts a
-           WHERE a.goal_id = g.id AND a.user_id = g.user_id
-          ), 0
+          (SELECT balance FROM jars j WHERE j.id = g.jar_id AND j.user_id = g.user_id),
+          0
         ) as current_amount,
         CASE WHEN g.target_amount > 0
           THEN ROUND(
             (COALESCE(
-              (SELECT balance
-               FROM accounts a
-               WHERE a.goal_id = g.id AND a.user_id = g.user_id
-              ), 0) / g.target_amount) * 100, 1)
+              (SELECT balance FROM jars j WHERE j.id = g.jar_id AND j.user_id = g.user_id),
+              0
+            ) / g.target_amount) * 100, 1)
           ELSE 0
         END as progress,
         CASE WHEN g.target_date IS NOT NULL
@@ -114,18 +106,15 @@ export class Goal {
     const stmt = db.prepare(`
       SELECT g.*,
         COALESCE(
-          (SELECT balance
-           FROM accounts a
-           WHERE a.goal_id = g.id AND a.user_id = g.user_id
-          ), 0
+          (SELECT balance FROM jars j WHERE j.id = g.jar_id AND j.user_id = g.user_id),
+          0
         ) as current_amount,
         CASE WHEN g.target_amount > 0
           THEN ROUND(
             (COALESCE(
-              (SELECT balance
-               FROM accounts a
-               WHERE a.goal_id = g.id AND a.user_id = g.user_id
-              ), 0) / g.target_amount) * 100, 1)
+              (SELECT balance FROM jars j WHERE j.id = g.jar_id AND j.user_id = g.user_id),
+              0
+            ) / g.target_amount) * 100, 1)
           ELSE 0
         END as progress,
         CASE WHEN g.target_date IS NOT NULL
@@ -164,6 +153,7 @@ export class Goal {
     if (goal.status !== 'archived') {
       throw new Error('Apenas metas arquivadas podem ser excluídas.');
     }
+    // Remove associação com transações
     db.prepare('UPDATE transactions SET meta_id = NULL WHERE meta_id = ? AND user_id = ?').run(
       id,
       userId
@@ -180,55 +170,72 @@ export class Goal {
     this.update(id, userId, { status: 'active' });
   }
 
-  static getGoalAccount(goalId: number, userId: number): IAccount | undefined {
-    const stmt = db.prepare('SELECT * FROM accounts WHERE goal_id = ? AND user_id = ?');
-    return stmt.get(goalId, userId) as IAccount | undefined;
-  }
-
   static addContribution(
     goalId: number,
     userId: number,
     amount: number,
     sourceAccountId: number,
     date?: string,
-    note?: string
+    note?: string,
+    description?: string,
+    categoryId?: number | null,
+    tagIds?: number[]
   ): void {
     const goal = this.findById(goalId, userId);
     if (!goal) throw new Error('Meta não encontrada');
 
-    const goalAccount = this.getGoalAccount(goalId, userId);
-    if (!goalAccount) throw new Error('Conta da meta não encontrada');
+    const jar = Jar.findById(goal.jar_id, userId);
+    if (!jar) throw new Error('Caixinha associada não encontrada');
 
-    const sourceAccount = Account.findById(sourceAccountId, userId);
-    if (!sourceAccount) throw new Error('Conta de origem não encontrada');
+    const isDeposit = amount > 0;
+    const absAmount = Math.abs(amount);
 
-    if (sourceAccount.balance < amount) {
-      throw new Error('Saldo insuficiente na conta de origem');
+    if (isDeposit) {
+      const account = Account.findById(sourceAccountId, userId);
+      if (!account) throw new Error('Conta de origem não encontrada');
+      if (account.balance < absAmount) throw new Error('Saldo insuficiente na conta');
+    } else {
+      if (jar.balance < absAmount) throw new Error('Saldo insuficiente na caixinha');
     }
 
-    const txnId = Transaction.create({
+    const txnData = {
       user_id: userId,
-      account_id: sourceAccountId,
-      dest_account_id: goalAccount.id!,
-      type: 'transfer',
-      amount: amount,
-      description: `Aporte para meta "${goal.name}"${note ? ` - ${note}` : ''}`,
+      account_id: isDeposit ? sourceAccountId : null,
+      jar_id: isDeposit ? null : jar.id,
+      dest_account_id: isDeposit ? null : sourceAccountId,
+      dest_jar_id: isDeposit ? jar.id : null,
+      credit_card_id: null,
+      category_id: categoryId || null,
+      type: 'transfer' as const,
+      amount: absAmount,
+      description:
+        description ||
+        (isDeposit ? `Aporte para meta "${goal.name}"` : `Resgate da meta "${goal.name}"`) +
+          (note ? ` - ${note}` : ''),
       date: date || new Date().toISOString().slice(0, 10),
-      status: 'confirmed',
+      status: 'confirmed' as const,
       installment_total: 1,
       installment_current: 1,
       recurring_id: null,
       meta_id: goalId,
       attachment_path: null,
-    });
+    };
+    const txnId = Transaction.create(txnData);
 
-    Transaction.updateAccountBalance(sourceAccountId, userId);
-    Transaction.updateAccountBalance(goalAccount.id!, userId);
+    if (tagIds && tagIds.length > 0) {
+      Transaction.setTags(txnId, tagIds);
+    }
 
-    const updatedGoalAccount = Account.findById(goalAccount.id!, userId);
-    const newCurrent = updatedGoalAccount ? updatedGoalAccount.balance : 0;
+    if (isDeposit) {
+      Transaction.updateAccountBalance(sourceAccountId, userId);
+      Transaction.updateJarBalance(jar.id, userId);
+    } else {
+      Transaction.updateAccountBalance(sourceAccountId, userId);
+      Transaction.updateJarBalance(jar.id, userId);
+    }
 
-    this.update(goalId, userId, { current_amount: newCurrent });
+    const updatedJar = Jar.findById(jar.id, userId);
+    this.update(goalId, userId, { current_amount: updatedJar ? updatedJar.balance : 0 });
 
     const insertContribution = db.prepare(`
       INSERT INTO goal_contributions (goal_id, amount, date, note)
@@ -246,5 +253,16 @@ export class Goal {
     const goal = this.findById(goalId, userId);
     if (!goal) throw new Error('Meta não encontrada');
     return GoalContribution.findByGoal(goalId);
+  }
+
+  static completeGoal(goalId: number, userId: number): void {
+    const goal = this.findById(goalId, userId);
+    if (!goal) throw new Error('Meta não encontrada');
+    if (goal.status === 'archived' || goal.status === 'completed') {
+      throw new Error('Meta já está concluída ou arquivada');
+    }
+    // Marcar como concluída e arquivar (sem transferir, pois o dinheiro fica na caixinha)
+    this.update(goalId, userId, { status: 'completed' });
+    this.archive(goalId, userId);
   }
 }

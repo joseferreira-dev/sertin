@@ -78,11 +78,13 @@ export const goalService = {
   async addContribution(
     id: number,
     data: {
-      newTotal?: number;
-      amount?: number;
+      amount: number;
       sourceAccountId: number;
       date?: string;
       note?: string;
+      description?: string;
+      categoryId?: number;
+      tagIds?: number[];
     },
     token: string
   ): Promise<Goal> {
@@ -91,5 +93,9 @@ export const goalService = {
 
   async getContributions(id: number, token: string): Promise<GoalContribution[]> {
     return api.get<GoalContribution[]>(`/goals/${id}/contributions`, token);
+  },
+
+  async completeGoal(id: number, destAccountId: number, token: string): Promise<Goal> {
+    return api.post<Goal>(`/goals/${id}/complete`, { destAccountId }, token);
   },
 };

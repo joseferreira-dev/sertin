@@ -15,6 +15,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { formatBRL } from '../data/mock';
 import { transactionService, Transaction as TransactionType } from '../services/transactionService';
 import { accountService, Account } from '../services/accountService';
+import { jarService, Jar } from '../services/jarService';
 import { creditCardService, CreditCard } from '../services/creditCardService';
 import { categoryService, Category } from '../services/categoryService';
 import { tagService, Tag } from '../services/tagService';
@@ -29,9 +30,11 @@ interface TransactionForm {
   description: string;
   amount: number;
   accountId?: number | null;
+  jarId?: number | null;
+  destAccountId?: number | null;
+  destJarId?: number | null;
   creditCardId?: number | null;
   categoryId?: number | null;
-  destAccountId?: number | null;
   status: 'pending' | 'confirmed' | 'cancelled';
   tagIds: number[];
   installment_total?: number;
@@ -44,6 +47,9 @@ const emptyTx: TransactionForm = {
   description: '',
   amount: 0,
   accountId: null,
+  jarId: null,
+  destAccountId: null,
+  destJarId: null,
   creditCardId: null,
   categoryId: null,
   status: 'pending',
@@ -57,6 +63,7 @@ export default function Transactions() {
   const [txs, setTxs] = useState<TransactionWithTags[]>([]);
   const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [jars, setJars] = useState<Jar[]>([]);
   const [creditCards, setCreditCards] = useState<CreditCard[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
@@ -84,15 +91,17 @@ export default function Transactions() {
       const startDate = new Date(year, month - 1, 1).toISOString().slice(0, 10);
       const endDate = new Date(year, month, 0).toISOString().slice(0, 10);
 
-      const [txns, accs, cards, cats, tags] = await Promise.all([
+      const [txns, accs, jarsData, cards, cats, tags] = await Promise.all([
         transactionService.getAll(token, { limit: 200, startDate, endDate }),
         accountService.getAll(token, false),
+        jarService.getAll(token),
         creditCardService.getAll(token),
         categoryService.getAll(token),
         tagService.getAll(token),
       ]);
       setTxs(txns);
       setAccounts(accs);
+      setJars(jarsData);
       setCreditCards(cards);
       setCategories(cats);
       setAvailableTags(tags);
@@ -110,7 +119,14 @@ export default function Transactions() {
   const filtered = txs.filter((tx) => {
     if (search && !tx.description?.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterType !== 'all' && tx.type !== filterType) return false;
-    if (filterAccount && String(tx.account_id) !== filterAccount) return false;
+    if (filterAccount) {
+      const match =
+        String(tx.account_id) === filterAccount ||
+        String(tx.dest_account_id) === filterAccount ||
+        String(tx.jar_id) === filterAccount ||
+        String(tx.dest_jar_id) === filterAccount;
+      if (!match) return false;
+    }
     if (filterStatus && tx.status !== filterStatus) return false;
     return true;
   });
@@ -125,6 +141,7 @@ export default function Transactions() {
       ...emptyTx,
       date: new Date().toISOString().slice(0, 10),
       accountId: null,
+      jarId: null,
       creditCardId: null,
       status: 'pending',
     });
@@ -140,9 +157,11 @@ export default function Transactions() {
       description: tx.description,
       amount: Math.abs(tx.amount),
       accountId: tx.account_id ?? null,
+      jarId: (tx as any).jar_id ?? null,
+      destAccountId: tx.dest_account_id ?? null,
+      destJarId: (tx as any).dest_jar_id ?? null,
       creditCardId: (tx as any).credit_card_id ?? null,
       categoryId: tx.category_id ?? null,
-      destAccountId: tx.dest_account_id ?? null,
       status: tx.status || 'confirmed',
       tagIds: tx.tags?.map((t) => t.id) || [],
       installment_total: tx.installment_total || 1,
@@ -153,8 +172,21 @@ export default function Transactions() {
     setShowModal(true);
   };
 
+  const getAccountName = (id?: number | null) => {
+    if (!id) return '—';
+    const found = accounts.find((a) => a.id === id);
+    return found ? found.name : `ID ${id}`;
+  };
+
+  const getJarName = (id?: number | null) => {
+    if (!id) return '—';
+    const found = jars.find((j) => j.id === id);
+    return found ? found.name : `ID ${id}`;
+  };
+
   const combinedSources = [
     ...accounts.map((a) => ({ ...a, sourceType: 'account' as const })),
+    ...jars.map((j) => ({ ...j, sourceType: 'jar' as const, id: j.id, name: j.name })),
     ...creditCards.map((c) => ({
       ...c,
       sourceType: 'credit_card' as const,
@@ -165,6 +197,7 @@ export default function Transactions() {
 
   const selectedSourceValue = (() => {
     if (editTx.accountId) return `account-${editTx.accountId}`;
+    if (editTx.jarId) return `jar-${editTx.jarId}`;
     if (editTx.creditCardId) return `credit_card-${editTx.creditCardId}`;
     return '';
   })();
@@ -172,17 +205,21 @@ export default function Transactions() {
   const save = async () => {
     if (!token) return;
 
-    if (editTx.status !== 'pending' && !editTx.accountId && !editTx.creditCardId) {
-      alert('Transações confirmadas ou canceladas devem ter uma conta ou cartão vinculado.');
+    if (editTx.status !== 'pending' && !editTx.accountId && !editTx.jarId && !editTx.creditCardId) {
+      alert(
+        'Transações confirmadas ou canceladas devem ter uma conta, caixinha ou cartão vinculado.'
+      );
       return;
     }
 
     try {
       const payload: any = {
         account_id: editTx.accountId || null,
+        jar_id: editTx.jarId || null,
+        dest_account_id: editTx.destAccountId || null,
+        dest_jar_id: editTx.destJarId || null,
         credit_card_id: editTx.creditCardId || null,
         category_id: editTx.categoryId || null,
-        dest_account_id: editTx.destAccountId || null,
         type: editTx.type,
         amount: editTx.type === 'expense' ? -Math.abs(editTx.amount) : Math.abs(editTx.amount),
         description: editTx.description,
@@ -234,10 +271,16 @@ export default function Transactions() {
     return found ? found.name : `ID ${id}`;
   };
 
-  const getAccountName = (id?: number | null) => {
-    if (!id) return '—';
-    const found = accounts.find((a) => a.id === id);
-    return found ? found.name : `ID ${id}`;
+  const getSourceName = (tx: TransactionWithTags) => {
+    if (tx.account_id) return getAccountName(tx.account_id);
+    if ((tx as any).jar_id) return getJarName((tx as any).jar_id);
+    if ((tx as any).credit_card_id) {
+      const card = creditCards.find((c) => c.id === (tx as any).credit_card_id);
+      return card ? card.name : 'Cartão';
+    }
+    if (tx.dest_account_id) return getAccountName(tx.dest_account_id);
+    if ((tx as any).dest_jar_id) return getJarName((tx as any).dest_jar_id);
+    return '—';
   };
 
   if (loading) {
@@ -344,7 +387,7 @@ export default function Transactions() {
                     className="text-xs mb-1 block"
                     style={{ color: 'var(--muted-foreground)' }}
                   >
-                    Conta/Cartão
+                    Conta/Caixinha/Cartão
                   </label>
                   <select
                     className="w-full text-xs py-1.5"
@@ -354,7 +397,12 @@ export default function Transactions() {
                     <option value="">Todos</option>
                     {combinedSources.map((s) => (
                       <option key={`${s.sourceType}-${s.id}`} value={s.id}>
-                        {s.sourceType === 'account' ? 'Conta' : 'Cartão'}: {s.name}
+                        {s.sourceType === 'account'
+                          ? 'Conta'
+                          : s.sourceType === 'jar'
+                            ? 'Caixinha'
+                            : 'Cartão'}
+                        : {s.name}
                       </option>
                     ))}
                   </select>
@@ -446,21 +494,27 @@ export default function Transactions() {
           <table className="w-full">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
-                {['Data', 'Descrição', 'Categoria', 'Conta/Cartão', 'Status', 'Valor', ''].map(
-                  (h) => (
-                    <th
-                      key={h}
-                      className="text-left px-4 py-3 text-xs font-semibold"
-                      style={{
-                        color: 'var(--muted-foreground)',
-                        textTransform: 'uppercase',
-                        letterSpacing: '0.04em',
-                      }}
-                    >
-                      {h}
-                    </th>
-                  )
-                )}
+                {[
+                  'Data',
+                  'Descrição',
+                  'Categoria',
+                  'Conta/Caixinha/Cartão',
+                  'Status',
+                  'Valor',
+                  '',
+                ].map((h) => (
+                  <th
+                    key={h}
+                    className="text-left px-4 py-3 text-xs font-semibold"
+                    style={{
+                      color: 'var(--muted-foreground)',
+                      textTransform: 'uppercase',
+                      letterSpacing: '0.04em',
+                    }}
+                  >
+                    {h}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
@@ -519,14 +573,7 @@ export default function Transactions() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    <span className="truncate block max-w-28">
-                      {tx.account_id
-                        ? getAccountName(tx.account_id)
-                        : (tx as any).credit_card_id
-                          ? creditCards.find((c) => c.id === (tx as any).credit_card_id)?.name ||
-                            'Cartão'
-                          : '—'}
-                    </span>
+                    <span className="truncate block max-w-28">{getSourceName(tx)}</span>
                   </td>
                   <td className="px-4 py-3">
                     <span
@@ -697,21 +744,43 @@ export default function Transactions() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    Conta/Cartão
+                    Conta/Caixinha/Cartão
                   </label>
                   <select
                     value={selectedSourceValue}
                     onChange={(e) => {
                       const val = e.target.value;
                       if (!val) {
-                        setEditTx((p) => ({ ...p, accountId: null, creditCardId: null }));
+                        setEditTx((p) => ({
+                          ...p,
+                          accountId: null,
+                          jarId: null,
+                          creditCardId: null,
+                        }));
                         return;
                       }
                       const [type, id] = val.split('-');
                       if (type === 'account') {
-                        setEditTx((p) => ({ ...p, accountId: parseInt(id), creditCardId: null }));
+                        setEditTx((p) => ({
+                          ...p,
+                          accountId: parseInt(id),
+                          jarId: null,
+                          creditCardId: null,
+                        }));
+                      } else if (type === 'jar') {
+                        setEditTx((p) => ({
+                          ...p,
+                          jarId: parseInt(id),
+                          accountId: null,
+                          creditCardId: null,
+                        }));
                       } else if (type === 'credit_card') {
-                        setEditTx((p) => ({ ...p, creditCardId: parseInt(id), accountId: null }));
+                        setEditTx((p) => ({
+                          ...p,
+                          creditCardId: parseInt(id),
+                          accountId: null,
+                          jarId: null,
+                        }));
                       }
                     }}
                     className="w-full"
@@ -719,7 +788,12 @@ export default function Transactions() {
                     <option value="">Nenhum (só pendente)</option>
                     {combinedSources.map((s) => (
                       <option key={`${s.sourceType}-${s.id}`} value={`${s.sourceType}-${s.id}`}>
-                        {s.sourceType === 'account' ? 'Conta' : 'Cartão'}: {s.name}
+                        {s.sourceType === 'account'
+                          ? 'Conta'
+                          : s.sourceType === 'jar'
+                            ? 'Caixinha'
+                            : 'Cartão'}
+                        : {s.name}
                       </option>
                     ))}
                   </select>
@@ -756,24 +830,44 @@ export default function Transactions() {
                 {editTx.type === 'transfer' && (
                   <div className="flex flex-col gap-1">
                     <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                      Conta destino
+                      Destino
                     </label>
                     <select
                       className="w-full"
-                      value={editTx.destAccountId ?? ''}
-                      onChange={(e) =>
-                        setEditTx((p) => ({
-                          ...p,
-                          destAccountId: e.target.value ? parseInt(e.target.value) : null,
-                        }))
-                      }
+                      value={editTx.destAccountId ?? editTx.destJarId ?? ''}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        if (!val) {
+                          setEditTx((p) => ({ ...p, destAccountId: null, destJarId: null }));
+                          return;
+                        }
+                        const [type, id] = val.split('-');
+                        if (type === 'account') {
+                          setEditTx((p) => ({
+                            ...p,
+                            destAccountId: parseInt(id),
+                            destJarId: null,
+                          }));
+                        } else if (type === 'jar') {
+                          setEditTx((p) => ({
+                            ...p,
+                            destJarId: parseInt(id),
+                            destAccountId: null,
+                          }));
+                        }
+                      }}
                     >
                       <option value="">Selecione</option>
-                      {accounts
-                        .filter((a) => a.id !== editTx.accountId)
-                        .map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.name}
+                      {accounts.map((a) => (
+                        <option key={`account-${a.id}`} value={`account-${a.id}`}>
+                          Conta: {a.name}
+                        </option>
+                      ))}
+                      {jars
+                        .filter((j) => j.id !== editTx.jarId)
+                        .map((j) => (
+                          <option key={`jar-${j.id}`} value={`jar-${j.id}`}>
+                            Caixinha: {j.name}
                           </option>
                         ))}
                     </select>
@@ -841,11 +935,14 @@ export default function Transactions() {
                     <option value="confirmed">Confirmada</option>
                     <option value="cancelled">Cancelada</option>
                   </select>
-                  {editTx.status !== 'pending' && !editTx.accountId && !editTx.creditCardId && (
-                    <p className="text-xs text-danger mt-1" style={{ color: 'var(--danger)' }}>
-                      Para confirmar ou cancelar, selecione uma conta ou cartão.
-                    </p>
-                  )}
+                  {editTx.status !== 'pending' &&
+                    !editTx.accountId &&
+                    !editTx.jarId &&
+                    !editTx.creditCardId && (
+                      <p className="text-xs text-danger mt-1" style={{ color: 'var(--danger)' }}>
+                        Para confirmar ou cancelar, selecione uma conta, caixinha ou cartão.
+                      </p>
+                    )}
                 </div>
                 <div className="flex flex-col gap-1">
                   <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>

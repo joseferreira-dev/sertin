@@ -1,7 +1,7 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import { Goal } from '../models/Goal';
 import { AuthRequest } from '../middlewares/auth';
-import { Transaction } from '../models/Transaction';
+import { Jar } from '../models/Jar';
 
 export const goalController = {
   async getAll(req: AuthRequest, res: Response) {
@@ -24,13 +24,9 @@ export const goalController = {
     try {
       const userId = req.user!.id;
       const id = parseInt(String(req.params.id));
-      if (isNaN(id)) {
-        return res.status(400).json({ error: 'ID inválido' });
-      }
+      if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
       const goal = Goal.findById(id, userId);
-      if (!goal) {
-        return res.status(404).json({ error: 'Meta não encontrada' });
-      }
+      if (!goal) return res.status(404).json({ error: 'Meta não encontrada' });
       res.json(goal);
     } catch (error: any) {
       console.error('Erro ao buscar meta:', error);
@@ -43,6 +39,7 @@ export const goalController = {
       const userId = req.user!.id;
       const {
         name,
+        jar_id,
         type,
         target_amount,
         color,
@@ -52,16 +49,15 @@ export const goalController = {
         description,
         annual_yield,
       } = req.body;
-
-      if (!name || target_amount === undefined) {
-        return res.status(400).json({
-          error: 'Campos obrigatórios: name, target_amount',
-        });
+      if (!name || target_amount === undefined || !jar_id) {
+        return res.status(400).json({ error: 'Campos obrigatórios: name, target_amount, jar_id' });
       }
-
+      const jar = Jar.findById(jar_id, userId);
+      if (!jar) return res.status(404).json({ error: 'Caixinha não encontrada' });
       const id = Goal.create({
         user_id: userId,
         name,
+        jar_id,
         type: type || 'free',
         target_amount,
         color: color || '#10b981',
@@ -72,7 +68,6 @@ export const goalController = {
         description: description || undefined,
         annual_yield: annual_yield || 0,
       });
-
       const newGoal = Goal.findById(id, userId);
       res.status(201).json(newGoal);
     } catch (error: any) {
@@ -85,15 +80,9 @@ export const goalController = {
     try {
       const userId = req.user!.id;
       const id = parseInt(String(req.params.id));
-      if (isNaN(id)) {
-        return res.status(400).json({ error: 'ID inválido' });
-      }
-
+      if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
       const existing = Goal.findById(id, userId);
-      if (!existing) {
-        return res.status(404).json({ error: 'Meta não encontrada' });
-      }
-
+      if (!existing) return res.status(404).json({ error: 'Meta não encontrada' });
       const {
         name,
         type,
@@ -106,7 +95,6 @@ export const goalController = {
         description,
         annual_yield,
       } = req.body;
-
       const updateData: any = {};
       if (name !== undefined) updateData.name = name;
       if (type !== undefined) updateData.type = type;
@@ -118,9 +106,7 @@ export const goalController = {
       if (target_date !== undefined) updateData.target_date = target_date || undefined;
       if (description !== undefined) updateData.description = description;
       if (annual_yield !== undefined) updateData.annual_yield = annual_yield;
-
       Goal.update(id, userId, updateData);
-
       const updated = Goal.findById(id, userId);
       res.json(updated);
     } catch (error: any) {
@@ -133,10 +119,7 @@ export const goalController = {
     try {
       const userId = req.user!.id;
       const id = parseInt(String(req.params.id));
-      if (isNaN(id)) {
-        return res.status(400).json({ error: 'ID inválido' });
-      }
-
+      if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
       Goal.delete(id, userId);
       res.json({ message: 'Meta excluída com sucesso' });
     } catch (error: any) {
@@ -149,15 +132,9 @@ export const goalController = {
     try {
       const userId = req.user!.id;
       const id = parseInt(String(req.params.id));
-      if (isNaN(id)) {
-        return res.status(400).json({ error: 'ID inválido' });
-      }
-
+      if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
       const existing = Goal.findById(id, userId);
-      if (!existing) {
-        return res.status(404).json({ error: 'Meta não encontrada' });
-      }
-
+      if (!existing) return res.status(404).json({ error: 'Meta não encontrada' });
       Goal.update(id, userId, { status: 'archived' });
       const updated = Goal.findById(id, userId);
       res.json(updated);
@@ -171,9 +148,7 @@ export const goalController = {
     try {
       const userId = req.user!.id;
       const id = parseInt(String(req.params.id));
-      if (isNaN(id)) {
-        return res.status(400).json({ error: 'ID inválido' });
-      }
+      if (isNaN(id)) return res.status(400).json({ error: 'ID inválido' });
       Goal.unarchive(id, userId);
       const updated = Goal.findById(id, userId);
       res.json(updated);
@@ -187,36 +162,25 @@ export const goalController = {
     try {
       const userId = req.user!.id;
       const goalId = parseInt(String(req.params.id));
-      if (isNaN(goalId)) {
-        return res.status(400).json({ error: 'ID inválido' });
+      if (isNaN(goalId)) return res.status(400).json({ error: 'ID inválido' });
+      const { amount, sourceAccountId, date, note, description, categoryId, tagIds } = req.body;
+      if (!sourceAccountId) return res.status(400).json({ error: 'sourceAccountId é obrigatório' });
+      if (amount === undefined || isNaN(parseFloat(amount))) {
+        return res.status(400).json({ error: 'amount é obrigatório e deve ser um número' });
       }
-
-      const { newTotal, amount, sourceAccountId, date, note } = req.body;
-      let diff: number;
-
-      if (!sourceAccountId) {
-        return res.status(400).json({ error: 'sourceAccountId é obrigatório' });
-      }
-
-      if (newTotal !== undefined) {
-        const total = parseFloat(newTotal);
-        if (isNaN(total)) return res.status(400).json({ error: 'newTotal inválido' });
-        const goal = Goal.findById(goalId, userId);
-        if (!goal) return res.status(404).json({ error: 'Meta não encontrada' });
-        diff = total - goal.current_amount;
-      } else if (amount !== undefined) {
-        diff = parseFloat(amount);
-        if (isNaN(diff)) return res.status(400).json({ error: 'amount inválido' });
-      } else {
-        return res.status(400).json({ error: 'Forneça newTotal ou amount' });
-      }
-
-      if (diff === 0) {
-        const goal = Goal.findById(goalId, userId);
-        return res.json({ message: 'Nenhuma alteração no saldo', goal });
-      }
-
-      Goal.addContribution(goalId, userId, diff, sourceAccountId, date, note);
+      const parsedAmount = parseFloat(amount);
+      if (parsedAmount === 0) return res.status(400).json({ error: 'amount não pode ser zero' });
+      Goal.addContribution(
+        goalId,
+        userId,
+        parsedAmount,
+        parseInt(sourceAccountId),
+        date,
+        note,
+        description,
+        categoryId ? parseInt(categoryId) : null,
+        tagIds ? (Array.isArray(tagIds) ? tagIds.map(Number) : []) : []
+      );
       const updatedGoal = Goal.findById(goalId, userId);
       res.json(updatedGoal);
     } catch (error: any) {
@@ -229,14 +193,26 @@ export const goalController = {
     try {
       const userId = req.user!.id;
       const goalId = parseInt(String(req.params.id));
-      if (isNaN(goalId)) {
-        return res.status(400).json({ error: 'ID inválido' });
-      }
+      if (isNaN(goalId)) return res.status(400).json({ error: 'ID inválido' });
       const contributions = Goal.getContributions(goalId, userId);
       res.json(contributions);
     } catch (error: any) {
       console.error('Erro ao buscar contribuições:', error);
       res.status(500).json({ error: error.message || 'Erro ao buscar contribuições' });
+    }
+  },
+
+  async completeGoal(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user!.id;
+      const goalId = parseInt(String(req.params.id));
+      if (isNaN(goalId)) return res.status(400).json({ error: 'ID inválido' });
+      Goal.completeGoal(goalId, userId);
+      const updatedGoal = Goal.findById(goalId, userId);
+      res.json(updatedGoal);
+    } catch (error: any) {
+      console.error('Erro ao concluir meta:', error);
+      res.status(500).json({ error: error.message || 'Erro ao concluir meta' });
     }
   },
 };

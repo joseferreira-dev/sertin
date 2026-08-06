@@ -32,17 +32,15 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('checking','savings','cash','digital','goal')),
+    type TEXT NOT NULL CHECK(type IN ('checking','savings','cash','digital')),
     balance REAL DEFAULT 0,
     color TEXT DEFAULT '#10b981',
     institution TEXT,
     icon TEXT DEFAULT 'Wallet',
-    goal_id INTEGER,
     status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
   );
 
   -- Cartões de crédito
@@ -77,14 +75,52 @@ db.exec(`
     FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE CASCADE
   );
 
+  -- Caixinhas (Jars)
+  CREATE TABLE IF NOT EXISTS jars (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    balance REAL DEFAULT 0,
+    color TEXT DEFAULT '#10b981',
+    icon TEXT DEFAULT '💰',
+    description TEXT,
+    status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  -- Metas
+  CREATE TABLE IF NOT EXISTS goals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    name TEXT NOT NULL,
+    jar_id INTEGER NOT NULL,
+    type TEXT CHECK(type IN ('emergency','opportunity','travel','material','education','investment','free')),
+    target_amount REAL NOT NULL,
+    color TEXT DEFAULT '#10b981',
+    icon TEXT DEFAULT '🎯',
+    priority TEXT DEFAULT 'medium' CHECK(priority IN ('low','medium','high','urgent')),
+    status TEXT DEFAULT 'active' CHECK(status IN ('active','completed','delayed','archived')),
+    target_date DATE,
+    description TEXT,
+    annual_yield REAL DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (jar_id) REFERENCES jars(id) ON DELETE RESTRICT
+  );
+
   -- Transações
   CREATE TABLE IF NOT EXISTS transactions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     account_id INTEGER,
+    jar_id INTEGER,
+    dest_account_id INTEGER,
+    dest_jar_id INTEGER,
     credit_card_id INTEGER,
     category_id INTEGER,
-    dest_account_id INTEGER,
     type TEXT NOT NULL CHECK(type IN ('income','expense','transfer')),
     amount REAL NOT NULL,
     description TEXT NOT NULL,
@@ -100,10 +136,12 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (account_id) REFERENCES accounts(id) ON DELETE SET NULL,
+    FOREIGN KEY (jar_id) REFERENCES jars(id) ON DELETE SET NULL,
+    FOREIGN KEY (dest_account_id) REFERENCES accounts(id) ON DELETE SET NULL,
+    FOREIGN KEY (dest_jar_id) REFERENCES jars(id) ON DELETE SET NULL,
     FOREIGN KEY (credit_card_id) REFERENCES credit_cards(id) ON DELETE SET NULL,
-    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
-    FOREIGN KEY (dest_account_id) REFERENCES accounts(id) ON DELETE SET NULL
+    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL
   );
 
   -- Parcelamentos
@@ -163,27 +201,7 @@ db.exec(`
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
   );
 
-  -- Metas
-  CREATE TABLE IF NOT EXISTS goals (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    type TEXT CHECK(type IN ('emergency','opportunity','travel','material','education','investment','free')),
-    target_amount REAL NOT NULL,
-    current_amount REAL DEFAULT 0,
-    color TEXT DEFAULT '#10b981',
-    icon TEXT DEFAULT '🎯',
-    priority TEXT DEFAULT 'medium' CHECK(priority IN ('low','medium','high','urgent')),
-    status TEXT DEFAULT 'active' CHECK(status IN ('active','completed','delayed','archived')),
-    target_date DATE,
-    description TEXT,
-    annual_yield REAL DEFAULT 0,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-  );
-
-  -- Aportes
+  -- Aportes (histórico)
   CREATE TABLE IF NOT EXISTS goal_contributions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     goal_id INTEGER NOT NULL,
@@ -210,6 +228,8 @@ db.exec(`
 db.exec(`
   CREATE INDEX IF NOT EXISTS idx_transactions_user_date ON transactions(user_id, date);
   CREATE INDEX IF NOT EXISTS idx_transactions_account ON transactions(account_id);
+  CREATE INDEX IF NOT EXISTS idx_transactions_jar ON transactions(jar_id);
+  CREATE INDEX IF NOT EXISTS idx_transactions_dest_jar ON transactions(dest_jar_id);
   CREATE INDEX IF NOT EXISTS idx_transactions_category ON transactions(category_id);
   CREATE INDEX IF NOT EXISTS idx_budgets_user_month ON budgets(user_id, month);
   CREATE INDEX IF NOT EXISTS idx_goals_user_status ON goals(user_id, status);

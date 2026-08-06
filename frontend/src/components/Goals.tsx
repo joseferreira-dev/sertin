@@ -11,11 +11,17 @@ import {
   Archive,
   RotateCcw,
   History,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  CheckCircle,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { formatBRL } from '../data/mock';
 import { goalService, Goal, GoalContribution } from '../services/goalService';
+import { jarService, Jar } from '../services/jarService';
 import { accountService, Account } from '../services/accountService';
+import { categoryService, Category } from '../services/categoryService';
+import { tagService, Tag } from '../services/tagService';
 
 type GoalStatus = 'active' | 'completed' | 'delayed' | 'archived';
 type GoalPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -63,15 +69,30 @@ export default function Goals() {
   const [contributions, setContributions] = useState<GoalContribution[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Estado para o modal de aporte
+  // Modal de aporte/resgate
   const [showContributionModal, setShowContributionModal] = useState(false);
   const [contributionGoalId, setContributionGoalId] = useState<number | null>(null);
-  const [contributionNewTotal, setContributionNewTotal] = useState<string>('');
+  const [contributionType, setContributionType] = useState<'deposit' | 'withdraw'>('deposit');
+  const [contributionAmount, setContributionAmount] = useState<string>('');
   const [contributionSourceAccountId, setContributionSourceAccountId] = useState<string>('');
+  const [contributionDate, setContributionDate] = useState<string>('');
+  const [contributionDescription, setContributionDescription] = useState<string>('');
+  const [contributionNote, setContributionNote] = useState<string>('');
+  const [contributionCategoryId, setContributionCategoryId] = useState<string>('');
+  const [contributionTagIds, setContributionTagIds] = useState<number[]>([]);
+
+  // Modal de concluir meta
+  const [showCompleteModal, setShowCompleteModal] = useState(false);
+  const [completeGoalId, setCompleteGoalId] = useState<number | null>(null);
+
+  const [jars, setJars] = useState<Jar[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
 
   const [form, setForm] = useState({
     name: '',
+    jar_id: null as number | null,
     type: 'free' as Goal['type'],
     target_amount: '',
     color: '#10b981',
@@ -101,16 +122,29 @@ export default function Goals() {
     loadGoals();
   }, [token, showArchived]);
 
-  // Carregar contas para o modal de aporte
+  // Carregar dados para modais
   useEffect(() => {
-    if (showContributionModal && token) {
-      accountService.getAll(token).then(setAccounts).catch(console.error);
+    if (token && (showModal || showContributionModal || showCompleteModal)) {
+      Promise.all([
+        jarService.getAll(token),
+        accountService.getAll(token),
+        categoryService.getAll(token),
+        tagService.getAll(token),
+      ])
+        .then(([jarsData, accs, cats, tagsData]) => {
+          setJars(jarsData);
+          setAccounts(accs);
+          setCategories(cats);
+          setTags(tagsData);
+        })
+        .catch(console.error);
     }
-  }, [showContributionModal, token]);
+  }, [showModal, showContributionModal, showCompleteModal, token]);
 
   const openNew = () => {
     setForm({
       name: '',
+      jar_id: null,
       type: 'free',
       target_amount: '',
       color: '#10b981',
@@ -128,6 +162,7 @@ export default function Goals() {
   const openEdit = (goal: Goal) => {
     setForm({
       name: goal.name,
+      jar_id: goal.jar_id,
       type: goal.type,
       target_amount: String(goal.target_amount),
       color: goal.color,
@@ -144,9 +179,14 @@ export default function Goals() {
 
   const save = async () => {
     if (!token) return;
+    if (!form.jar_id) {
+      alert('Selecione uma caixinha para associar à meta.');
+      return;
+    }
     try {
       const payload = {
         name: form.name,
+        jar_id: form.jar_id,
         type: form.type,
         target_amount: parseFloat(form.target_amount) || 0,
         color: form.color,
@@ -218,31 +258,43 @@ export default function Goals() {
     }
   };
 
-  // Abrir modal de aporte
-  const openContribution = (goalId: number, currentAmount: number) => {
+  // Abrir modal de aporte/resgate
+  const openContribution = (goalId: number, type: 'deposit' | 'withdraw') => {
     setContributionGoalId(goalId);
-    setContributionNewTotal(String(currentAmount));
+    setContributionType(type);
+    setContributionAmount('');
     setContributionSourceAccountId('');
+    setContributionDate(new Date().toISOString().slice(0, 10));
+    setContributionDescription('');
+    setContributionNote('');
+    setContributionCategoryId('');
+    setContributionTagIds([]);
     setShowContributionModal(true);
   };
 
   const handleContributionSubmit = async () => {
     if (!token || !contributionGoalId) return;
-    const newTotal = parseFloat(contributionNewTotal.replace(',', '.'));
-    if (isNaN(newTotal) || newTotal < 0) {
+    const amount = parseFloat(contributionAmount.replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) {
       alert('Valor inválido');
       return;
     }
     if (!contributionSourceAccountId) {
-      alert('Selecione uma conta de origem');
+      alert('Selecione uma conta de origem/destino');
       return;
     }
+    const finalAmount = contributionType === 'deposit' ? amount : -amount;
     try {
       await goalService.addContribution(
         contributionGoalId,
         {
-          newTotal,
+          amount: finalAmount,
           sourceAccountId: parseInt(contributionSourceAccountId),
+          date: contributionDate,
+          note: contributionNote || undefined,
+          description: contributionDescription || undefined,
+          categoryId: contributionCategoryId ? parseInt(contributionCategoryId) : undefined,
+          tagIds: contributionTagIds,
         },
         token
       );
@@ -253,6 +305,26 @@ export default function Goals() {
         setDetailGoal(updated);
         const hist = await goalService.getContributions(contributionGoalId, token);
         setContributions(hist);
+      }
+    } catch (err: any) {
+      alert(err.message);
+    }
+  };
+
+  // Concluir meta
+  const openComplete = (goalId: number) => {
+    setCompleteGoalId(goalId);
+    setShowCompleteModal(true);
+  };
+
+  const handleCompleteSubmit = async () => {
+    if (!token || !completeGoalId) return;
+    try {
+      await goalService.completeGoal(completeGoalId, token);
+      setShowCompleteModal(false);
+      await loadGoals();
+      if (detailGoal && detailGoal.id === completeGoalId) {
+        setDetailGoal(null);
       }
     } catch (err: any) {
       alert(err.message);
@@ -305,7 +377,7 @@ export default function Goals() {
     );
   };
 
-  const isArchived = (status: string) => status === 'archived';
+  const isArchived = (status: string) => status === 'archived' || status === 'completed';
 
   return (
     <div className="max-w-5xl mx-auto">
@@ -398,21 +470,16 @@ export default function Goals() {
                         className="text-xs px-1.5 py-0.5 rounded-full"
                         style={{ background: 'rgba(99,102,241,0.15)', color: 'var(--accent)' }}
                       >
-                        Arquivada
-                      </span>
-                    )}
-                    {goal.status === 'completed' && !isArchivedGoal && (
-                      <span
-                        className="text-xs px-1.5 py-0.5 rounded-full"
-                        style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--primary)' }}
-                      >
-                        Concluída
+                        {goal.status === 'completed' ? 'Concluída' : 'Arquivada'}
                       </span>
                     )}
                   </div>
                   <h3 className="text-sm font-semibold">{goal.name}</h3>
                   <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
                     {typeLabels[goal.type] || goal.type}
+                  </p>
+                  <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                    Caixinha: {jars.find((j) => j.id === goal.jar_id)?.name || '—'}
                   </p>
                 </div>
                 <ProgressRing goal={goal} />
@@ -473,22 +540,49 @@ export default function Goals() {
                 </div>
               )}
 
-              <div className="mt-3 flex gap-2">
+              <div className="mt-3 flex gap-2 flex-wrap">
                 {!isArchivedGoal && (
-                  <button
-                    className="flex-1 py-1.5 rounded-lg text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity"
-                    style={{
-                      background: goal.color + '22',
-                      color: goal.color,
-                      border: `1px solid ${goal.color}44`,
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      openContribution(goal.id, goal.current_amount);
-                    }}
-                  >
-                    Atualizar valor
-                  </button>
+                  <>
+                    <button
+                      className="flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                      style={{
+                        background: 'rgba(16,185,129,0.12)',
+                        color: 'var(--primary)',
+                        border: '1px solid rgba(16,185,129,0.3)',
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openContribution(goal.id, 'deposit');
+                      }}
+                    >
+                      <ArrowUpCircle size={12} className="inline mr-1" /> Aportar
+                    </button>
+                    <button
+                      className="flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors"
+                      style={{
+                        background: 'rgba(239,68,68,0.12)',
+                        color: 'var(--danger)',
+                        border: '1px solid rgba(239,68,68,0.3)',
+                      }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openContribution(goal.id, 'withdraw');
+                      }}
+                    >
+                      <ArrowDownCircle size={12} className="inline mr-1" /> Resgatar
+                    </button>
+                    <button
+                      className="px-2 py-1 rounded-lg text-xs transition-opacity hover:opacity-70"
+                      style={{ color: 'var(--primary)' }}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openComplete(goal.id);
+                      }}
+                      title="Concluir meta"
+                    >
+                      <CheckCircle size={14} />
+                    </button>
+                  </>
                 )}
                 <button
                   className="px-2 py-1 rounded-lg text-xs transition-opacity hover:opacity-70"
@@ -565,6 +659,30 @@ export default function Goals() {
                   placeholder="Ex: Viagem para Europa"
                   className="w-full"
                 />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Caixinha associada *
+                </label>
+                <select
+                  value={form.jar_id || ''}
+                  onChange={(e) =>
+                    setForm((p) => ({
+                      ...p,
+                      jar_id: e.target.value ? parseInt(e.target.value) : null,
+                    }))
+                  }
+                  className="w-full"
+                >
+                  <option value="">Selecione uma caixinha</option>
+                  {jars
+                    .filter((j) => j.status === 'active')
+                    .map((j) => (
+                      <option key={j.id} value={j.id}>
+                        {j.name} - {formatBRL(j.balance)}
+                      </option>
+                    ))}
+                </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
@@ -729,6 +847,9 @@ export default function Goals() {
                   <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
                     {typeLabels[detailGoal.type] || detailGoal.type}
                   </p>
+                  <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                    Caixinha: {jars.find((j) => j.id === detailGoal.jar_id)?.name || '—'}
+                  </p>
                 </div>
               </div>
               <button
@@ -826,56 +947,19 @@ export default function Goals() {
                       {detailGoal.description}
                     </div>
                   )}
-
-                  <div
-                    className="p-4 rounded-xl"
-                    style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
-                  >
-                    <p
-                      className="text-xs font-semibold mb-2"
-                      style={{ color: 'var(--muted-foreground)' }}
-                    >
-                      Atualizar valor acumulado
-                    </p>
-                    <div className="flex gap-2">
-                      <input
-                        type="number"
-                        placeholder="Novo valor"
-                        defaultValue={detailGoal.current_amount}
-                        className="flex-1"
-                        id="goal-current-amount"
-                      />
-                      <button
-                        className="px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
-                        style={{ background: 'var(--primary)', color: '#fff' }}
-                        onClick={() => {
-                          const input = document.getElementById(
-                            'goal-current-amount'
-                          ) as HTMLInputElement;
-                          const val = parseFloat(input.value.replace(',', '.'));
-                          if (!isNaN(val) && val >= 0) {
-                            // Abrir modal de aporte com este valor
-                            openContribution(detailGoal.id, val);
-                          }
-                        }}
-                      >
-                        Atualizar
-                      </button>
-                    </div>
-                  </div>
                 </div>
               )}
 
               {detailTab === 'history' && (
                 <div className="flex flex-col gap-3">
-                  <h3 className="text-sm font-semibold">Histórico de Aportes</h3>
+                  <h3 className="text-sm font-semibold">Histórico de Movimentações</h3>
                   {loadingHistory ? (
                     <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
                       Carregando...
                     </p>
                   ) : contributions.length === 0 ? (
                     <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                      Nenhuma contribuição registrada ainda.
+                      Nenhuma movimentação registrada ainda.
                     </p>
                   ) : (
                     <div className="flex flex-col gap-2">
@@ -969,7 +1053,7 @@ export default function Goals() {
         </div>
       )}
 
-      {/* Modal de aporte */}
+      {/* Modal de Aporte/Resgate */}
       {showContributionModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -983,7 +1067,9 @@ export default function Goals() {
               className="flex items-center justify-between px-5 py-4 border-b"
               style={{ borderColor: 'var(--border)' }}
             >
-              <h2 className="font-semibold text-sm">Aporte para Meta</h2>
+              <h2 className="font-semibold text-sm">
+                {contributionType === 'deposit' ? 'Aporte para Meta' : 'Resgate da Meta'}
+              </h2>
               <button
                 onClick={() => setShowContributionModal(false)}
                 style={{ color: 'var(--muted-foreground)' }}
@@ -992,21 +1078,45 @@ export default function Goals() {
               </button>
             </div>
             <div className="p-5 flex flex-col gap-4">
+              <div className="flex gap-2">
+                <button
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    contributionType === 'deposit'
+                      ? 'bg-primary text-white'
+                      : 'bg-secondary text-muted-foreground'
+                  }`}
+                  onClick={() => setContributionType('deposit')}
+                >
+                  Aportar
+                </button>
+                <button
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    contributionType === 'withdraw'
+                      ? 'bg-danger text-white'
+                      : 'bg-secondary text-muted-foreground'
+                  }`}
+                  onClick={() => setContributionType('withdraw')}
+                >
+                  Resgatar
+                </button>
+              </div>
+
               <div className="flex flex-col gap-1">
                 <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                  Novo valor total (R$)
+                  Valor (R$)
                 </label>
                 <input
                   type="number"
-                  value={contributionNewTotal}
-                  onChange={(e) => setContributionNewTotal(e.target.value)}
+                  value={contributionAmount}
+                  onChange={(e) => setContributionAmount(e.target.value)}
                   placeholder="0,00"
                   className="w-full"
                 />
               </div>
+
               <div className="flex flex-col gap-1">
                 <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                  Conta de origem
+                  {contributionType === 'deposit' ? 'Conta de origem' : 'Conta de destino'}
                 </label>
                 <select
                   value={contributionSourceAccountId}
@@ -1014,18 +1124,101 @@ export default function Goals() {
                   className="w-full"
                 >
                   <option value="">Selecione uma conta</option>
-                  {accounts
-                    .filter((a) => a.type !== 'goal')
-                    .map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name} - {formatBRL(a.balance)}
-                      </option>
-                    ))}
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name} - {formatBRL(a.balance)}
+                    </option>
+                  ))}
                 </select>
               </div>
-              <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                O valor será transferido da conta selecionada para a conta da meta.
-              </p>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Data
+                </label>
+                <input
+                  type="date"
+                  value={contributionDate}
+                  onChange={(e) => setContributionDate(e.target.value)}
+                  className="w-full"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Descrição (opcional)
+                </label>
+                <input
+                  value={contributionDescription}
+                  onChange={(e) => setContributionDescription(e.target.value)}
+                  placeholder="Ex: Aporte mensal"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Observação (opcional)
+                </label>
+                <input
+                  value={contributionNote}
+                  onChange={(e) => setContributionNote(e.target.value)}
+                  placeholder="Nota interna"
+                  className="w-full"
+                />
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Categoria (opcional)
+                </label>
+                <select
+                  value={contributionCategoryId}
+                  onChange={(e) => setContributionCategoryId(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="">Sem categoria</option>
+                  {categories.map((cat) => (
+                    <optgroup key={cat.id} label={cat.name}>
+                      <option value={cat.id}>{cat.name}</option>
+                      {cat.children?.map((sub) => (
+                        <option key={sub.id} value={sub.id}>
+                          {sub.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex flex-col gap-1">
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Etiquetas
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {tags.map((tag) => {
+                    const selected = contributionTagIds.includes(tag.id);
+                    return (
+                      <button
+                        key={tag.id}
+                        onClick={() => {
+                          setContributionTagIds((prev) =>
+                            selected ? prev.filter((id) => id !== tag.id) : [...prev, tag.id]
+                          );
+                        }}
+                        className="text-xs px-2 py-0.5 rounded-full transition-all"
+                        style={{
+                          background: selected ? tag.color + '33' : 'var(--secondary)',
+                          color: selected ? tag.color : 'var(--muted-foreground)',
+                          border: `1px solid ${selected ? tag.color + '66' : 'var(--border)'}`,
+                        }}
+                      >
+                        {tag.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
             </div>
             <div className="flex gap-3 px-5 pb-5">
               <button
@@ -1040,7 +1233,55 @@ export default function Goals() {
                 className="flex-1 py-2 rounded-lg text-sm font-medium"
                 style={{ background: 'var(--primary)', color: '#fff' }}
               >
-                Confirmar Aporte
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Concluir Meta */}
+      {showCompleteModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(7,9,13,0.8)', backdropFilter: 'blur(4px)' }}
+        >
+          <div
+            className="w-full max-w-md rounded-xl overflow-hidden"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+          >
+            <div
+              className="flex items-center justify-between px-5 py-4 border-b"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <h2 className="font-semibold text-sm">Concluir Meta</h2>
+              <button
+                onClick={() => setShowCompleteModal(false)}
+                style={{ color: 'var(--muted-foreground)' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5 flex flex-col gap-4">
+              <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+                Ao concluir a meta, ela será arquivada e marcada como concluída. O dinheiro
+                permanecerá na caixinha associada.
+              </p>
+            </div>
+            <div className="flex gap-3 px-5 pb-5">
+              <button
+                onClick={() => setShowCompleteModal(false)}
+                className="flex-1 py-2 rounded-lg text-sm"
+                style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleCompleteSubmit}
+                className="flex-1 py-2 rounded-lg text-sm font-medium"
+                style={{ background: 'var(--primary)', color: '#fff' }}
+              >
+                Concluir
               </button>
             </div>
           </div>
