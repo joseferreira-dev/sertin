@@ -77,7 +77,13 @@ export const goalService = {
 
   async addContribution(
     id: number,
-    data: { newTotal?: number; amount?: number; date?: string; note?: string },
+    data: {
+      newTotal?: number;
+      amount?: number;
+      sourceAccountId: number;
+      date?: string;
+      note?: string;
+    },
     token: string
   ): Promise<Goal> {
     return api.post<Goal>(`/goals/${id}/contributions`, data, token);

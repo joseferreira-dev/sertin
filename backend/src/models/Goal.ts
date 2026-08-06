@@ -1,5 +1,7 @@
 import db from '../config/database';
 import { GoalContribution, IGoalContribution } from './GoalContribution';
+import { Account, IAccount } from './Account';
+import { Transaction } from './Transaction';
 
 export interface IGoal {
   id?: number;
@@ -42,7 +44,15 @@ export class Goal {
       data.description || null,
       data.annual_yield || 0
     );
-    return info.lastInsertRowid as number;
+    const goalId = info.lastInsertRowid as number;
+
+    const accountStmt = db.prepare(`
+      INSERT INTO accounts (user_id, name, type, balance, color, icon, goal_id, status)
+      VALUES (?, ?, 'goal', 0, ?, ?, ?, 'active')
+    `);
+    accountStmt.run(data.user_id, data.name, data.color || '#10b981', data.icon || '💰', goalId);
+
+    return goalId;
   }
 
   static findByUser(
@@ -52,23 +62,18 @@ export class Goal {
     let sql = `
       SELECT g.*,
         COALESCE(
-          (SELECT SUM(amount)
-           FROM transactions t
-           WHERE t.user_id = g.user_id
-             AND t.meta_id = g.id
-             AND t.type = 'income'
-             AND t.status = 'confirmed'
+          (SELECT balance
+           FROM accounts a
+           WHERE a.goal_id = g.id AND a.user_id = g.user_id
           ), 0
         ) as current_amount,
         CASE WHEN g.target_amount > 0
-          THEN ROUND((COALESCE(
-            (SELECT SUM(amount)
-             FROM transactions t
-             WHERE t.user_id = g.user_id
-               AND t.meta_id = g.id
-               AND t.type = 'income'
-               AND t.status = 'confirmed'
-            ), 0) / g.target_amount) * 100, 1)
+          THEN ROUND(
+            (COALESCE(
+              (SELECT balance
+               FROM accounts a
+               WHERE a.goal_id = g.id AND a.user_id = g.user_id
+              ), 0) / g.target_amount) * 100, 1)
           ELSE 0
         END as progress,
         CASE WHEN g.target_date IS NOT NULL
@@ -109,23 +114,18 @@ export class Goal {
     const stmt = db.prepare(`
       SELECT g.*,
         COALESCE(
-          (SELECT SUM(amount)
-           FROM transactions t
-           WHERE t.user_id = g.user_id
-             AND t.meta_id = g.id
-             AND t.type = 'income'
-             AND t.status = 'confirmed'
+          (SELECT balance
+           FROM accounts a
+           WHERE a.goal_id = g.id AND a.user_id = g.user_id
           ), 0
         ) as current_amount,
         CASE WHEN g.target_amount > 0
-          THEN ROUND((COALESCE(
-            (SELECT SUM(amount)
-             FROM transactions t
-             WHERE t.user_id = g.user_id
-               AND t.meta_id = g.id
-               AND t.type = 'income'
-               AND t.status = 'confirmed'
-            ), 0) / g.target_amount) * 100, 1)
+          THEN ROUND(
+            (COALESCE(
+              (SELECT balance
+               FROM accounts a
+               WHERE a.goal_id = g.id AND a.user_id = g.user_id
+              ), 0) / g.target_amount) * 100, 1)
           ELSE 0
         END as progress,
         CASE WHEN g.target_date IS NOT NULL
@@ -159,13 +159,11 @@ export class Goal {
   }
 
   static delete(id: number, userId: number): void {
-    // Só permite excluir se status for 'archived'
     const goal = this.findById(id, userId);
     if (!goal) throw new Error('Meta não encontrada');
     if (goal.status !== 'archived') {
       throw new Error('Apenas metas arquivadas podem ser excluídas.');
     }
-    // Remove associação de transações (meta_id fica NULL)
     db.prepare('UPDATE transactions SET meta_id = NULL WHERE meta_id = ? AND user_id = ?').run(
       id,
       userId
@@ -182,48 +180,69 @@ export class Goal {
     this.update(id, userId, { status: 'active' });
   }
 
-  // Adicione estes métodos à classe Goal existente
+  static getGoalAccount(goalId: number, userId: number): IAccount | undefined {
+    const stmt = db.prepare('SELECT * FROM accounts WHERE goal_id = ? AND user_id = ?');
+    return stmt.get(goalId, userId) as IAccount | undefined;
+  }
 
   static addContribution(
     goalId: number,
     userId: number,
     amount: number,
+    sourceAccountId: number,
     date?: string,
     note?: string
   ): void {
     const goal = this.findById(goalId, userId);
     if (!goal) throw new Error('Meta não encontrada');
 
-    const newCurrent = goal.current_amount + amount;
-    if (newCurrent < 0) throw new Error('Saldo não pode ficar negativo');
+    const goalAccount = this.getGoalAccount(goalId, userId);
+    if (!goalAccount) throw new Error('Conta da meta não encontrada');
 
-    const insertContribution = db.prepare(`
-    INSERT INTO goal_contributions (goal_id, amount, date, note)
-    VALUES (?, ?, ?, ?)
-  `);
-    const updateGoal = db.prepare(`
-    UPDATE goals SET current_amount = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ? AND user_id = ?
-  `);
+    const sourceAccount = Account.findById(sourceAccountId, userId);
+    if (!sourceAccount) throw new Error('Conta de origem não encontrada');
 
-    const transaction = db.transaction(() => {
-      insertContribution.run(
-        goalId,
-        amount,
-        date || new Date().toISOString().slice(0, 10),
-        note || null
-      );
-      updateGoal.run(newCurrent, goalId, userId);
+    if (sourceAccount.balance < amount) {
+      throw new Error('Saldo insuficiente na conta de origem');
+    }
+
+    const txnId = Transaction.create({
+      user_id: userId,
+      account_id: sourceAccountId,
+      dest_account_id: goalAccount.id!,
+      type: 'transfer',
+      amount: amount,
+      description: `Aporte para meta "${goal.name}"${note ? ` - ${note}` : ''}`,
+      date: date || new Date().toISOString().slice(0, 10),
+      status: 'confirmed',
+      installment_total: 1,
+      installment_current: 1,
+      recurring_id: null,
+      meta_id: goalId,
+      attachment_path: null,
     });
 
-    transaction();
-    console.log(
-      `Contribuição registrada: meta ${goalId}, valor ${amount}, novo saldo ${newCurrent}`
+    Transaction.updateAccountBalance(sourceAccountId, userId);
+    Transaction.updateAccountBalance(goalAccount.id!, userId);
+
+    const updatedGoalAccount = Account.findById(goalAccount.id!, userId);
+    const newCurrent = updatedGoalAccount ? updatedGoalAccount.balance : 0;
+
+    this.update(goalId, userId, { current_amount: newCurrent });
+
+    const insertContribution = db.prepare(`
+      INSERT INTO goal_contributions (goal_id, amount, date, note)
+      VALUES (?, ?, ?, ?)
+    `);
+    insertContribution.run(
+      goalId,
+      amount,
+      date || new Date().toISOString().slice(0, 10),
+      note || null
     );
   }
 
   static getContributions(goalId: number, userId: number): IGoalContribution[] {
-    // Verifica se a meta pertence ao usuário
     const goal = this.findById(goalId, userId);
     if (!goal) throw new Error('Meta não encontrada');
     return GoalContribution.findByGoal(goalId);

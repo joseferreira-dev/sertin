@@ -1,4 +1,3 @@
-// backend/src/controllers/goalController.ts
 import { Request, Response } from 'express';
 import { Goal } from '../models/Goal';
 import { AuthRequest } from '../middlewares/auth';
@@ -192,8 +191,12 @@ export const goalController = {
         return res.status(400).json({ error: 'ID inválido' });
       }
 
-      const { newTotal, amount, date, note } = req.body;
+      const { newTotal, amount, sourceAccountId, date, note } = req.body;
       let diff: number;
+
+      if (!sourceAccountId) {
+        return res.status(400).json({ error: 'sourceAccountId é obrigatório' });
+      }
 
       if (newTotal !== undefined) {
         const total = parseFloat(newTotal);
@@ -213,7 +216,7 @@ export const goalController = {
         return res.json({ message: 'Nenhuma alteração no saldo', goal });
       }
 
-      Goal.addContribution(goalId, userId, diff, date, note);
+      Goal.addContribution(goalId, userId, diff, sourceAccountId, date, note);
       const updatedGoal = Goal.findById(goalId, userId);
       res.json(updatedGoal);
     } catch (error: any) {

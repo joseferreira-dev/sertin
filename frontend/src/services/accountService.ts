@@ -4,7 +4,7 @@ export interface Account {
   id: number;
   user_id: number;
   name: string;
-  type: 'checking' | 'savings' | 'cash' | 'digital';
+  type: 'checking' | 'savings' | 'cash' | 'digital' | 'goal';
   balance: number;
   color: string;
   institution: string;

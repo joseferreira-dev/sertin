@@ -15,6 +15,7 @@ import {
 import { useAuth } from '../contexts/AuthContext';
 import { formatBRL } from '../data/mock';
 import { goalService, Goal, GoalContribution } from '../services/goalService';
+import { accountService, Account } from '../services/accountService';
 
 type GoalStatus = 'active' | 'completed' | 'delayed' | 'archived';
 type GoalPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -62,6 +63,13 @@ export default function Goals() {
   const [contributions, setContributions] = useState<GoalContribution[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
+  // Estado para o modal de aporte
+  const [showContributionModal, setShowContributionModal] = useState(false);
+  const [contributionGoalId, setContributionGoalId] = useState<number | null>(null);
+  const [contributionNewTotal, setContributionNewTotal] = useState<string>('');
+  const [contributionSourceAccountId, setContributionSourceAccountId] = useState<string>('');
+  const [accounts, setAccounts] = useState<Account[]>([]);
+
   const [form, setForm] = useState({
     name: '',
     type: 'free' as Goal['type'],
@@ -92,6 +100,13 @@ export default function Goals() {
   useEffect(() => {
     loadGoals();
   }, [token, showArchived]);
+
+  // Carregar contas para o modal de aporte
+  useEffect(() => {
+    if (showContributionModal && token) {
+      accountService.getAll(token).then(setAccounts).catch(console.error);
+    }
+  }, [showContributionModal, token]);
 
   const openNew = () => {
     setForm({
@@ -189,7 +204,6 @@ export default function Goals() {
   const viewDetails = async (goal: Goal) => {
     setDetailGoal(goal);
     setDetailTab('overview');
-    // Carrega histórico ao abrir
     if (token) {
       try {
         setLoadingHistory(true);
@@ -204,17 +218,40 @@ export default function Goals() {
     }
   };
 
-  const handleUpdateValue = async (goalId: number, newTotal: number) => {
-    if (!token) return;
+  // Abrir modal de aporte
+  const openContribution = (goalId: number, currentAmount: number) => {
+    setContributionGoalId(goalId);
+    setContributionNewTotal(String(currentAmount));
+    setContributionSourceAccountId('');
+    setShowContributionModal(true);
+  };
+
+  const handleContributionSubmit = async () => {
+    if (!token || !contributionGoalId) return;
+    const newTotal = parseFloat(contributionNewTotal.replace(',', '.'));
+    if (isNaN(newTotal) || newTotal < 0) {
+      alert('Valor inválido');
+      return;
+    }
+    if (!contributionSourceAccountId) {
+      alert('Selecione uma conta de origem');
+      return;
+    }
     try {
-      await goalService.addContribution(goalId, { newTotal }, token);
+      await goalService.addContribution(
+        contributionGoalId,
+        {
+          newTotal,
+          sourceAccountId: parseInt(contributionSourceAccountId),
+        },
+        token
+      );
+      setShowContributionModal(false);
       await loadGoals();
-      // Atualiza o modal se estiver aberto
-      if (detailGoal && detailGoal.id === goalId) {
-        const updated = await goalService.getOne(goalId, token);
+      if (detailGoal && detailGoal.id === contributionGoalId) {
+        const updated = await goalService.getOne(contributionGoalId, token);
         setDetailGoal(updated);
-        // Recarrega histórico
-        const hist = await goalService.getContributions(goalId, token);
+        const hist = await goalService.getContributions(contributionGoalId, token);
         setContributions(hist);
       }
     } catch (err: any) {
@@ -447,16 +484,7 @@ export default function Goals() {
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
-                      const newAmount = prompt(
-                        'Digite o novo valor acumulado (R$):',
-                        String(goal.current_amount)
-                      );
-                      if (newAmount !== null) {
-                        const val = parseFloat(newAmount.replace(',', '.'));
-                        if (!isNaN(val) && val >= 0) {
-                          handleUpdateValue(goal.id, val);
-                        }
-                      }
+                      openContribution(goal.id, goal.current_amount);
                     }}
                   >
                     Atualizar valor
@@ -674,7 +702,7 @@ export default function Goals() {
         </div>
       )}
 
-      {/* Modal de detalhes (apenas para metas não arquivadas) */}
+      {/* Modal de detalhes */}
       {detailGoal && !isArchived(detailGoal.status) && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -820,18 +848,14 @@ export default function Goals() {
                       <button
                         className="px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
                         style={{ background: 'var(--primary)', color: '#fff' }}
-                        onClick={async () => {
+                        onClick={() => {
                           const input = document.getElementById(
                             'goal-current-amount'
                           ) as HTMLInputElement;
                           const val = parseFloat(input.value.replace(',', '.'));
                           if (!isNaN(val) && val >= 0) {
-                            await handleUpdateValue(detailGoal.id, val);
-                            // Recarrega detalhe e histórico
-                            const updated = await goalService.getOne(detailGoal.id, token!);
-                            setDetailGoal(updated);
-                            const hist = await goalService.getContributions(detailGoal.id, token!);
-                            setContributions(hist);
+                            // Abrir modal de aporte com este valor
+                            openContribution(detailGoal.id, val);
                           }
                         }}
                       >
@@ -921,7 +945,6 @@ export default function Goals() {
                     className="w-full py-2.5 rounded-lg text-sm font-medium mt-2"
                     style={{ background: 'var(--primary)', color: '#fff' }}
                     onClick={async () => {
-                      // Implementar edição rápida
                       alert('Funcionalidade em breve');
                     }}
                   >
@@ -941,6 +964,84 @@ export default function Goals() {
                   </button>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de aporte */}
+      {showContributionModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          style={{ background: 'rgba(7,9,13,0.8)', backdropFilter: 'blur(4px)' }}
+        >
+          <div
+            className="w-full max-w-md rounded-xl overflow-hidden"
+            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+          >
+            <div
+              className="flex items-center justify-between px-5 py-4 border-b"
+              style={{ borderColor: 'var(--border)' }}
+            >
+              <h2 className="font-semibold text-sm">Aporte para Meta</h2>
+              <button
+                onClick={() => setShowContributionModal(false)}
+                style={{ color: 'var(--muted-foreground)' }}
+              >
+                <X size={16} />
+              </button>
+            </div>
+            <div className="p-5 flex flex-col gap-4">
+              <div className="flex flex-col gap-1">
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Novo valor total (R$)
+                </label>
+                <input
+                  type="number"
+                  value={contributionNewTotal}
+                  onChange={(e) => setContributionNewTotal(e.target.value)}
+                  placeholder="0,00"
+                  className="w-full"
+                />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                  Conta de origem
+                </label>
+                <select
+                  value={contributionSourceAccountId}
+                  onChange={(e) => setContributionSourceAccountId(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="">Selecione uma conta</option>
+                  {accounts
+                    .filter((a) => a.type !== 'goal')
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name} - {formatBRL(a.balance)}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                O valor será transferido da conta selecionada para a conta da meta.
+              </p>
+            </div>
+            <div className="flex gap-3 px-5 pb-5">
+              <button
+                onClick={() => setShowContributionModal(false)}
+                className="flex-1 py-2 rounded-lg text-sm"
+                style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleContributionSubmit}
+                className="flex-1 py-2 rounded-lg text-sm font-medium"
+                style={{ background: 'var(--primary)', color: '#fff' }}
+              >
+                Confirmar Aporte
+              </button>
             </div>
           </div>
         </div>

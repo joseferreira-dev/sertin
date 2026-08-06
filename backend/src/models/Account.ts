@@ -4,11 +4,12 @@ export interface IAccount {
   id?: number;
   user_id: number;
   name: string;
-  type: 'checking' | 'savings' | 'cash' | 'digital';
+  type: 'checking' | 'savings' | 'cash' | 'digital' | 'goal';
   balance: number;
   color?: string;
   institution?: string;
   icon?: string;
+  goal_id?: number | null;
   status: 'active' | 'inactive';
   created_at?: string;
   updated_at?: string;
@@ -17,8 +18,8 @@ export interface IAccount {
 export class Account {
   static create(data: Omit<IAccount, 'id' | 'created_at' | 'updated_at'>): number {
     const stmt = db.prepare(`
-      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, goal_id, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       data.user_id,
@@ -28,6 +29,7 @@ export class Account {
       data.color || '#10b981',
       data.institution || null,
       data.icon || 'Wallet',
+      data.goal_id || null,
       data.status || 'active'
     );
     return info.lastInsertRowid as number;
@@ -47,6 +49,11 @@ export class Account {
   static findById(id: number, userId: number): IAccount | undefined {
     const stmt = db.prepare('SELECT * FROM accounts WHERE id = ? AND user_id = ?');
     return stmt.get(id, userId) as IAccount | undefined;
+  }
+
+  static findGoalAccount(goalId: number, userId: number): IAccount | undefined {
+    const stmt = db.prepare('SELECT * FROM accounts WHERE goal_id = ? AND user_id = ?');
+    return stmt.get(goalId, userId) as IAccount | undefined;
   }
 
   static update(id: number, userId: number, data: Partial<IAccount>): void {

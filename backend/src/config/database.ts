@@ -32,15 +32,17 @@ db.exec(`
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     name TEXT NOT NULL,
-    type TEXT NOT NULL CHECK(type IN ('checking','savings','cash','digital')),
+    type TEXT NOT NULL CHECK(type IN ('checking','savings','cash','digital','goal')),
     balance REAL DEFAULT 0,
     color TEXT DEFAULT '#10b981',
     institution TEXT,
     icon TEXT DEFAULT 'Wallet',
+    goal_id INTEGER,
     status TEXT DEFAULT 'active' CHECK(status IN ('active','inactive')),
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (goal_id) REFERENCES goals(id) ON DELETE CASCADE
   );
 
   -- Cartões de crédito
