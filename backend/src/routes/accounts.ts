@@ -7,6 +7,7 @@ router.use(authMiddleware);
 router.get('/', accountController.getAll);
 router.get('/net-worth', accountController.getNetWorth);
 router.get('/:id', accountController.getOne);
+router.get('/:id/transactions', accountController.getTransactions);
 router.post('/', accountController.create);
 router.put('/:id', accountController.update);
 router.delete('/:id', accountController.remove);

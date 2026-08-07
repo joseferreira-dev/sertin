@@ -2,13 +2,17 @@ import { Request, Response } from 'express';
 import { Account } from '../models/Account';
 import { AuthRequest } from '../middlewares/auth';
 import { Transaction } from '../models/Transaction';
+import db from '../config/database';
 
 export const accountController = {
   async getAll(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
-      const onlyActive = req.query.onlyActive === 'true';
-      const accounts = Account.findByUser(userId, onlyActive);
+      const { status, type } = req.query;
+      const filters: { status?: 'active' | 'inactive'; type?: string } = {};
+      if (status === 'active' || status === 'inactive') filters.status = status;
+      if (type) filters.type = String(type);
+      const accounts = Account.findByUser(userId, filters);
       res.json(accounts);
     } catch (error: any) {
       console.error('Erro ao listar contas:', error);
@@ -141,6 +145,120 @@ export const accountController = {
     } catch (error: any) {
       console.error('Erro ao calcular Net Worth:', error);
       res.status(500).json({ error: 'Erro ao calcular Net Worth' });
+    }
+  },
+
+  async getTransactions(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user!.id;
+      const accountId = parseInt(String(req.params.id));
+      if (isNaN(accountId)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const account = Account.findById(accountId, userId);
+      if (!account) {
+        return res.status(404).json({ error: 'Conta não encontrada' });
+      }
+
+      // Filtros via query string
+      const { startDate, endDate, type } = req.query;
+
+      let sql = `
+        SELECT t.*,
+          json_group_array(DISTINCT json_object(
+            'id', tg.id,
+            'name', tg.name,
+            'color', tg.color
+          )) as tags
+        FROM transactions t
+        LEFT JOIN transaction_tags tt ON tt.transaction_id = t.id
+        LEFT JOIN tags tg ON tg.id = tt.tag_id
+        WHERE t.user_id = ?
+          AND t.status = 'confirmed'
+          AND (
+            t.account_id = ?
+            OR t.dest_account_id = ?
+          )
+          AND t.type IN ('income', 'expense', 'transfer')
+      `;
+
+      const params: any[] = [userId, accountId, accountId];
+
+      if (startDate) {
+        sql += ' AND t.date >= ?';
+        params.push(startDate);
+      }
+      if (endDate) {
+        sql += ' AND t.date <= ?';
+        params.push(endDate);
+      }
+      if (type && ['income', 'expense', 'transfer'].includes(String(type))) {
+        sql += ' AND t.type = ?';
+        params.push(type);
+      }
+
+      sql += ' GROUP BY t.id ORDER BY t.date DESC, t.id DESC';
+
+      const stmt = db.prepare(sql);
+      const rows = stmt.all(...params) as any[];
+
+      const txs = rows.map((row: any) => {
+        let tags: any[] = [];
+        if (row.tags) {
+          try {
+            tags = JSON.parse(row.tags);
+            tags = tags.filter((t: any) => t !== null);
+          } catch {
+            tags = [];
+          }
+        }
+
+        let impact = 0;
+        if (row.type === 'income') {
+          impact = row.amount;
+        } else if (row.type === 'expense') {
+          impact = -Math.abs(row.amount);
+        } else if (row.type === 'transfer') {
+          if (row.account_id === accountId) {
+            impact = -Math.abs(row.amount);
+          } else if (row.dest_account_id === accountId) {
+            impact = Math.abs(row.amount);
+          }
+        }
+
+        delete row.tags;
+        return { ...row, tags, impact };
+      });
+
+      // Calcula saldo acumulado (do mais antigo para o mais novo)
+      const txsAsc = [...txs].reverse();
+      let running = account.balance; // saldo atual da conta
+      for (const tx of txsAsc) {
+        running -= tx.impact;
+      }
+      // running agora é o saldo anterior à primeira transação (saldo inicial do período)
+
+      const result: any[] = [];
+      let balance = running;
+      for (const tx of txsAsc) {
+        balance += tx.impact;
+        result.push({
+          ...tx,
+          running_balance: balance,
+        });
+      }
+      result.reverse();
+
+      res.json({
+        account,
+        transactions: result,
+        initial_balance: running,
+        final_balance: account.balance,
+      });
+    } catch (error: any) {
+      console.error('Erro ao buscar extrato da conta:', error);
+      res.status(500).json({ error: 'Erro ao buscar extrato da conta' });
     }
   },
 };

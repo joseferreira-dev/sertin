@@ -12,6 +12,20 @@ export function seed() {
 
     console.log('Inserindo dados iniciais...');
 
+    // Data base: hoje
+    const now = new Date();
+    const todayStr = now.toISOString().slice(0, 10);
+    const year = now.getFullYear();
+    const month = now.getMonth();
+    const day = now.getDate();
+
+    // Função para gerar datas a partir de hoje (offset positivo para futuro, negativo para passado)
+    // Neste seed, só usaremos offset positivo (futuro) ou zero (hoje).
+    const dateStr = (daysOffset: number): string => {
+      const d = new Date(year, month, day + daysOffset);
+      return d.toISOString().slice(0, 10);
+    };
+
     // 1. Usuário
     const password = 'Jose2569*';
     const hash = bcrypt.hashSync(password, 12);
@@ -28,7 +42,7 @@ export function seed() {
     );
     const userId = info.lastInsertRowid as number;
 
-    // 2. Contas
+    // 2. Contas - criadas com saldo atual (today)
     const accounts = [
       {
         name: 'Nubank',
@@ -66,7 +80,7 @@ export function seed() {
 
     const initTxStmt = db.prepare(`
       INSERT INTO transactions (user_id, account_id, type, amount, description, date, status, installment_total, installment_current)
-      VALUES (?, ?, 'income', ?, 'Saldo inicial', date('now'), 'confirmed', 1, 1)
+      VALUES (?, ?, 'income', ?, 'Saldo inicial', ?, 'confirmed', 1, 1)
     `);
 
     const accountIds: number[] = [];
@@ -83,8 +97,9 @@ export function seed() {
       );
       const accountId = info.lastInsertRowid as number;
       accountIds.push(accountId);
+      // Transação de saldo inicial com data de hoje
       if (acc.balance !== 0) {
-        initTxStmt.run(userId, accountId, acc.balance);
+        initTxStmt.run(userId, accountId, acc.balance, todayStr);
       }
     }
 
@@ -177,7 +192,7 @@ export function seed() {
       tagStmt.run(userId, tag.name, tag.color, tag.description);
     }
 
-    // 5. Orçamentos de exemplo
+    // 5. Orçamentos de exemplo (mês atual)
     const sampleBudgets = [
       { category: 'Moradia', amount: 2800 },
       { category: 'Alimentação', amount: 800 },
@@ -191,7 +206,7 @@ export function seed() {
       INSERT INTO budgets (user_id, category_id, month, budgeted_amount)
       VALUES (?, ?, ?, ?)
     `);
-    const currentMonth = new Date().toISOString().slice(0, 7);
+    const currentMonth = now.toISOString().slice(0, 7);
 
     for (const sb of sampleBudgets) {
       const catId = parentIds[sb.category];
@@ -272,7 +287,7 @@ export function seed() {
       goalIds.push(info.lastInsertRowid as number);
     }
 
-    // 8. Transações adicionais (despesas e receitas)
+    // 8. Transações adicionais (despesas e receitas) com datas a partir de hoje (futuro)
     const txnStmt = db.prepare(`
       INSERT INTO transactions (
         user_id, account_id, category_id, type, amount, description, date, status,
@@ -280,15 +295,7 @@ export function seed() {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
-    const today = new Date();
-    const year = today.getFullYear();
-    const month = today.getMonth();
-
-    const dateStr = (day: number, m: number = month, y: number = year) => {
-      const d = new Date(y, m, day);
-      return d.toISOString().slice(0, 10);
-    };
-
+    // Gerar despesas para os próximos 30 dias (a partir de amanhã)
     const expenseCategories = [
       'Moradia',
       'Alimentação',
@@ -313,18 +320,17 @@ export function seed() {
       'Condomínio',
     ];
 
-    for (let m = month - 2; m <= month; m++) {
-      const monthIndex = ((m % 12) + 12) % 12;
-      const yearIndex = year + Math.floor(m / 12) - (m < 0 ? 1 : 0);
-      const numDays = 20 + Math.floor(Math.random() * 8);
-      for (let d = 1; d <= numDays; d += 2) {
+    // Para cada um dos próximos 30 dias, criar algumas transações
+    for (let d = 1; d <= 30; d++) {
+      const numTx = Math.floor(Math.random() * 3) + 1; // 1 a 3 transações por dia
+      for (let i = 0; i < numTx; i++) {
         const cat = expenseCategories[Math.floor(Math.random() * expenseCategories.length)];
         const catId = parentIds[cat];
         if (!catId) continue;
         const accountId = accountIds[Math.floor(Math.random() * accountIds.length)];
         const amount = (10 + Math.random() * 200).toFixed(2);
         const desc = descriptions[Math.floor(Math.random() * descriptions.length)];
-        const date = dateStr(d, monthIndex, yearIndex);
+        const date = dateStr(d);
         txnStmt.run(
           userId,
           accountId,
@@ -340,25 +346,27 @@ export function seed() {
       }
     }
 
-    // Receitas (salário)
-    for (const day of [5, 20]) {
-      const catId = parentIds['Salário'];
-      if (catId) {
+    // Receitas (salário) nos dias futuros
+    const salarioCatId = parentIds['Salário'];
+    if (salarioCatId) {
+      // Dois salários nos dias +5 e +20 (simulando dias de pagamento)
+      for (const offset of [5, 20]) {
         txnStmt.run(
           userId,
           accountIds[2],
-          catId,
+          salarioCatId,
           'income',
           7500,
           'Salário',
-          dateStr(day),
+          dateStr(offset),
           'confirmed',
           1,
           1
         );
       }
     }
-    // Freelance
+
+    // Freelance no dia +15
     const freelanceCatId = parentIds['Freelance'];
     if (freelanceCatId) {
       txnStmt.run(
@@ -375,7 +383,7 @@ export function seed() {
       );
     }
 
-    // Transferência entre contas
+    // Transferência entre contas (dia +10)
     const transferStmt = db.prepare(`
       INSERT INTO transactions (
         user_id, account_id, dest_account_id, type, amount, description, date, status,
@@ -395,7 +403,7 @@ export function seed() {
       1
     );
 
-    // 9. Parcelamento
+    // 9. Parcelamento (iniciando hoje)
     const installmentStmt = db.prepare(`
       INSERT INTO installments (
         user_id, account_id, credit_card_id, category_id, description, total_amount, installment_count, start_date, status
@@ -409,7 +417,7 @@ export function seed() {
       'Viagem para Europa - Parcelado',
       5000,
       10,
-      dateStr(1, month - 1),
+      todayStr, // primeira parcela hoje
       'active'
     );
     const installmentId = installmentInfo.lastInsertRowid as number;
@@ -422,9 +430,12 @@ export function seed() {
     `);
     const totalParcelas = 10;
     const valorParcela = 500;
+    // Gerar parcelas mensais a partir de hoje
     for (let i = 1; i <= totalParcelas; i++) {
-      const dataParcela = new Date(year, month - 1 + i, 22);
+      // Data da parcela: hoje + i meses (ex: +1 mês, +2 meses...)
+      const dataParcela = new Date(year, month + i, 22);
       const dateStrParcela = dataParcela.toISOString().slice(0, 10);
+      const status = i <= 3 ? 'confirmed' : 'pending'; // primeiras 3 pagas
       parcelStmt.run(
         userId,
         null,
@@ -434,66 +445,51 @@ export function seed() {
         -valorParcela,
         `Parcela ${i}/${totalParcelas} - Viagem Europa`,
         dateStrParcela,
-        'pending',
+        status,
         installmentId,
         i,
         totalParcelas,
         i
       );
     }
-    db.prepare(
-      `UPDATE transactions SET status = 'confirmed' WHERE installment_id = ? AND installment_number <= ?`
-    ).run(installmentId, 3);
 
-    // 10. Aportes para metas (usando Goal.addContribution)
-    // Buscar contas das metas (caixinhas já existem)
-    // Precisamos de accounts ativas para origem
-    const goalAccounts = db
-      .prepare('SELECT id FROM jars WHERE id = ? AND user_id = ?')
-      .all(goalIds[0], userId) as { id: number }[];
-    if (goalAccounts.length > 0) {
-      const jarId = goalAccounts[0].id;
-      // Aporte para Fundo de Emergência: transferir de Nubank (accountIds[0])
-      Goal.addContribution(
-        goalIds[0],
-        userId,
-        1000,
-        accountIds[0],
-        dateStr(5),
-        'Aporte mensal',
-        undefined,
-        null,
-        []
-      );
-      Goal.addContribution(
-        goalIds[0],
-        userId,
-        500,
-        accountIds[0],
-        dateStr(20),
-        'Bônus',
-        undefined,
-        null,
-        []
-      );
-    }
+    // 10. Aportes para metas (transferências da conta Nubank para caixinhas) em dias futuros
+    // Aporte para Fundo de Emergência (dias +5 e +20)
+    Goal.addContribution(
+      goalIds[0],
+      userId,
+      1000,
+      accountIds[0],
+      dateStr(5),
+      'Aporte mensal',
+      undefined,
+      null,
+      []
+    );
+    Goal.addContribution(
+      goalIds[0],
+      userId,
+      500,
+      accountIds[0],
+      dateStr(20),
+      'Bônus',
+      undefined,
+      null,
+      []
+    );
 
-    const goalAccounts2 = db
-      .prepare('SELECT id FROM jars WHERE id = ? AND user_id = ?')
-      .all(goalIds[1], userId) as { id: number }[];
-    if (goalAccounts2.length > 0) {
-      Goal.addContribution(
-        goalIds[1],
-        userId,
-        1500,
-        accountIds[0],
-        dateStr(10),
-        'Poupança viagem',
-        undefined,
-        null,
-        []
-      );
-    }
+    // Aporte para Viagem Europa (dia +10)
+    Goal.addContribution(
+      goalIds[1],
+      userId,
+      1500,
+      accountIds[0],
+      dateStr(10),
+      'Poupança viagem',
+      undefined,
+      null,
+      []
+    );
 
     // 11. Logs
     const logStmt = db.prepare(`

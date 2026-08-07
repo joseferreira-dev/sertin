@@ -10,10 +10,14 @@ import {
   Banknote,
   Power,
   PowerOff,
+  FileText,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { accountService, Account } from '../services/accountService';
 import { formatBRL } from '../data/mock';
+import Toast from './Toast';
+import ConfirmDialog from './ConfirmDialog';
+import AccountStatement from './AccountStatement';
 
 const iconMap: Record<string, any> = { Wallet, Building2, PiggyBank, Banknote };
 
@@ -39,15 +43,36 @@ export default function Accounts() {
     institution: '',
     status: 'active' as 'active' | 'inactive',
   });
-  const [confirmAction, setConfirmAction] = useState<{
-    type: 'delete' | 'toggle';
-    id: number;
+
+  // Filtros
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'checking' | 'savings' | 'cash' | 'digital'>(
+    'all'
+  );
+
+  // Confirmação e Toasts
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'info';
   } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant?: 'danger' | 'primary';
+  } | null>(null);
+
+  // Extrato
+  const [statementAccountId, setStatementAccountId] = useState<number | null>(null);
+  const [statementAccountName, setStatementAccountName] = useState('');
 
   const loadAccounts = async () => {
     try {
       setLoading(true);
-      const data = await accountService.getAll(token!);
+      const params: any = {};
+      if (filterStatus !== 'all') params.status = filterStatus;
+      if (filterType !== 'all') params.type = filterType;
+      const data = await accountService.getAll(token!, params);
       setAccounts(data);
     } catch (err: any) {
       setError(err.message);
@@ -58,7 +83,7 @@ export default function Accounts() {
 
   useEffect(() => {
     if (token) loadAccounts();
-  }, [token]);
+  }, [token, filterStatus, filterType]);
 
   const netWorth = accounts.filter((a) => a.status === 'active').reduce((s, a) => s + a.balance, 0);
 
@@ -101,6 +126,7 @@ export default function Accounts() {
           },
           token!
         );
+        setToast({ message: 'Conta atualizada com sucesso!', type: 'success' });
       } else {
         await accountService.create(
           {
@@ -115,35 +141,62 @@ export default function Accounts() {
           },
           token!
         );
+        setToast({ message: 'Conta criada com sucesso!', type: 'success' });
       }
       setShowModal(false);
       await loadAccounts();
     } catch (err: any) {
-      alert(err.message);
+      setToast({ message: err.message, type: 'error' });
     }
   };
 
-  const toggleActive = async (id: number) => {
-    try {
-      const account = accounts.find((a) => a.id === id);
-      if (!account) return;
-      const newStatus = account.status === 'active' ? 'inactive' : 'active';
-      await accountService.update(id, { status: newStatus }, token!);
-      await loadAccounts();
-      setConfirmAction(null);
-    } catch (err: any) {
-      alert(err.message);
-    }
+  const toggleActive = (id: number) => {
+    setConfirmDialog({
+      title: 'Alterar status',
+      message:
+        'Deseja alterar o status da conta entre ativa e inativa? Contas inativas não podem ser usadas em novas transações.',
+      onConfirm: async () => {
+        try {
+          const account = accounts.find((a) => a.id === id);
+          if (!account) return;
+          const newStatus = account.status === 'active' ? 'inactive' : 'active';
+          await accountService.update(id, { status: newStatus }, token!);
+          await loadAccounts();
+          setToast({
+            message: `Conta ${newStatus === 'active' ? 'ativada' : 'inativada'} com sucesso!`,
+            type: 'success',
+          });
+        } catch (err: any) {
+          setToast({ message: err.message, type: 'error' });
+        }
+        setConfirmDialog(null);
+      },
+      variant: 'primary',
+    });
   };
 
-  const deleteAccount = async (id: number) => {
-    try {
-      await accountService.delete(id, token!);
-      await loadAccounts();
-      setConfirmAction(null);
-    } catch (err: any) {
-      alert(err.message);
-    }
+  const deleteAccount = (id: number) => {
+    setConfirmDialog({
+      title: 'Excluir conta',
+      message:
+        'Esta ação excluirá a conta permanentemente. Só é permitido se não houver transações vinculadas.',
+      onConfirm: async () => {
+        try {
+          await accountService.delete(id, token!);
+          await loadAccounts();
+          setToast({ message: 'Conta excluída com sucesso!', type: 'success' });
+        } catch (err: any) {
+          setToast({ message: err.message, type: 'error' });
+        }
+        setConfirmDialog(null);
+      },
+      variant: 'danger',
+    });
+  };
+
+  const openStatement = (id: number, name: string) => {
+    setStatementAccountId(id);
+    setStatementAccountName(name);
   };
 
   if (loading) {
@@ -177,13 +230,37 @@ export default function Accounts() {
             {accounts.filter((a) => a.status !== 'active').length} inativa(s)
           </p>
         </div>
-        <button
-          onClick={openNew}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
-          style={{ background: 'var(--primary)', color: '#fff' }}
-        >
-          <Plus size={14} /> Nova conta
-        </button>
+        <div className="flex items-center gap-3">
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value as any)}
+            className="text-sm"
+            style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+          >
+            <option value="all">Todos os status</option>
+            <option value="active">Ativas</option>
+            <option value="inactive">Inativas</option>
+          </select>
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value as any)}
+            className="text-sm"
+            style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+          >
+            <option value="all">Todos os tipos</option>
+            <option value="checking">Conta Corrente</option>
+            <option value="savings">Poupança</option>
+            <option value="cash">Dinheiro Físico</option>
+            <option value="digital">Carteira Digital</option>
+          </select>
+          <button
+            onClick={openNew}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
+            style={{ background: 'var(--primary)', color: '#fff' }}
+          >
+            <Plus size={14} /> Nova conta
+          </button>
+        </div>
       </div>
 
       {/* Net Worth Banner */}
@@ -208,9 +285,13 @@ export default function Accounts() {
           </p>
           <p
             className="text-3xl font-bold mono"
-            style={{ color: 'var(--primary)', letterSpacing: '-0.05em' }}
+            style={{
+              color: netWorth >= 0 ? 'var(--primary)' : 'var(--danger)',
+              letterSpacing: '-0.05em',
+            }}
           >
-            {formatBRL(netWorth)}
+            {netWorth < 0 ? '-' : ''}
+            {formatBRL(Math.abs(netWorth))}
           </p>
         </div>
         <div className="flex gap-8 text-right">
@@ -282,6 +363,14 @@ export default function Accounts() {
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
+                    onClick={() => openStatement(acc.id, acc.name)}
+                    className="w-6 h-6 rounded flex items-center justify-center"
+                    style={{ color: 'var(--muted-foreground)' }}
+                    title="Extrato"
+                  >
+                    <FileText size={12} />
+                  </button>
+                  <button
                     onClick={() => openEdit(acc)}
                     className="w-6 h-6 rounded flex items-center justify-center"
                     style={{ color: 'var(--muted-foreground)' }}
@@ -289,14 +378,14 @@ export default function Accounts() {
                     <Pencil size={12} />
                   </button>
                   <button
-                    onClick={() => setConfirmAction({ type: 'toggle', id: acc.id })}
+                    onClick={() => toggleActive(acc.id)}
                     className="w-6 h-6 rounded flex items-center justify-center"
                     style={{ color: isActive ? 'var(--warning)' : 'var(--primary)' }}
                   >
                     {isActive ? <PowerOff size={12} /> : <Power size={12} />}
                   </button>
                   <button
-                    onClick={() => setConfirmAction({ type: 'delete', id: acc.id })}
+                    onClick={() => deleteAccount(acc.id)}
                     className="w-6 h-6 rounded flex items-center justify-center"
                     style={{ color: 'var(--danger)' }}
                   >
@@ -319,7 +408,8 @@ export default function Accounts() {
                   className="text-xl font-bold mono"
                   style={{ color: balanceClass(acc.balance), letterSpacing: '-0.04em' }}
                 >
-                  {formatBRL(acc.balance)}
+                  {acc.balance < 0 ? '-' : ''}
+                  {formatBRL(Math.abs(acc.balance))}
                 </p>
               </div>
             </div>
@@ -338,7 +428,7 @@ export default function Accounts() {
         </button>
       </div>
 
-      {/* Modal */}
+      {/* Modal de criação/edição */}
       {showModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -486,47 +576,27 @@ export default function Accounts() {
         </div>
       )}
 
-      {/* Confirm Action Modal */}
-      {confirmAction && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'rgba(7,9,13,0.8)' }}
-        >
-          <div
-            className="w-80 rounded-xl p-6"
-            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-          >
-            <h3 className="font-semibold mb-2">
-              {confirmAction.type === 'delete' ? 'Excluir conta' : 'Alterar status'}
-            </h3>
-            <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>
-              {confirmAction.type === 'delete'
-                ? 'Esta ação excluirá a conta permanentemente. Só é permitido se não houver transações vinculadas.'
-                : 'Deseja alterar o status da conta entre ativa e inativa? Contas inativas não podem ser usadas em novas transações.'}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setConfirmAction(null)}
-                className="flex-1 py-2 rounded-lg text-sm"
-                style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => {
-                  if (confirmAction.type === 'delete') deleteAccount(confirmAction.id);
-                  else toggleActive(confirmAction.id);
-                }}
-                className="flex-1 py-2 rounded-lg text-sm font-medium text-white"
-                style={{
-                  background: confirmAction.type === 'delete' ? 'var(--danger)' : 'var(--primary)',
-                }}
-              >
-                Confirmar
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Extrato */}
+      {statementAccountId && (
+        <AccountStatement
+          accountId={statementAccountId}
+          accountName={statementAccountName}
+          onClose={() => setStatementAccountId(null)}
+        />
+      )}
+
+      {/* Toast */}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+      {/* Confirm Dialog */}
+      {confirmDialog && (
+        <ConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={() => setConfirmDialog(null)}
+          variant={confirmDialog.variant}
+        />
       )}
     </div>
   );

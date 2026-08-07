@@ -90,9 +90,11 @@ sertin/
         ├── index.css
         ├── main.tsx
         ├── vite-env.d.ts
+            ├── AccountStatement.tsx
             ├── Accounts.tsx
             ├── Budgets.tsx
             ├── Categories.tsx
+            ├── ConfirmDialog.tsx
             ├── CreditCards.tsx
             ├── Dashboard.tsx
             ├── Goals.tsx
@@ -105,8 +107,10 @@ sertin/
             ├── Reports.tsx
             ├── Settings.tsx
             ├── Tags.tsx
+            ├── Toast.tsx
             ├── Transactions.tsx
             ├── AuthContext.tsx
+            ├── ToastContext.tsx
             ├── accountService.ts
             ├── api.ts
             ├── budgetService.ts
@@ -1261,13 +1265,17 @@ import { Request, Response } from 'express';
 import { Account } from '../models/Account';
 import { AuthRequest } from '../middlewares/auth';
 import { Transaction } from '../models/Transaction';
+import db from '../config/database';
 
 export const accountController = {
   async getAll(req: AuthRequest, res: Response) {
     try {
       const userId = req.user!.id;
-      const onlyActive = req.query.onlyActive === 'true';
-      const accounts = Account.findByUser(userId, onlyActive);
+      const { status, type } = req.query;
+      const filters: { status?: 'active' | 'inactive'; type?: string } = {};
+      if (status === 'active' || status === 'inactive') filters.status = status;
+      if (type) filters.type = String(type);
+      const accounts = Account.findByUser(userId, filters);
       res.json(accounts);
     } catch (error: any) {
       console.error('Erro ao listar contas:', error);
@@ -1400,6 +1408,120 @@ export const accountController = {
     } catch (error: any) {
       console.error('Erro ao calcular Net Worth:', error);
       res.status(500).json({ error: 'Erro ao calcular Net Worth' });
+    }
+  },
+
+  async getTransactions(req: AuthRequest, res: Response) {
+    try {
+      const userId = req.user!.id;
+      const accountId = parseInt(String(req.params.id));
+      if (isNaN(accountId)) {
+        return res.status(400).json({ error: 'ID inválido' });
+      }
+
+      const account = Account.findById(accountId, userId);
+      if (!account) {
+        return res.status(404).json({ error: 'Conta não encontrada' });
+      }
+
+      // Filtros via query string
+      const { startDate, endDate, type } = req.query;
+
+      let sql = `
+        SELECT t.*,
+          json_group_array(DISTINCT json_object(
+            'id', tg.id,
+            'name', tg.name,
+            'color', tg.color
+          )) as tags
+        FROM transactions t
+        LEFT JOIN transaction_tags tt ON tt.transaction_id = t.id
+        LEFT JOIN tags tg ON tg.id = tt.tag_id
+        WHERE t.user_id = ?
+          AND t.status = 'confirmed'
+          AND (
+            t.account_id = ?
+            OR t.dest_account_id = ?
+          )
+          AND t.type IN ('income', 'expense', 'transfer')
+      `;
+
+      const params: any[] = [userId, accountId, accountId];
+
+      if (startDate) {
+        sql += ' AND t.date >= ?';
+        params.push(startDate);
+      }
+      if (endDate) {
+        sql += ' AND t.date <= ?';
+        params.push(endDate);
+      }
+      if (type && ['income', 'expense', 'transfer'].includes(String(type))) {
+        sql += ' AND t.type = ?';
+        params.push(type);
+      }
+
+      sql += ' GROUP BY t.id ORDER BY t.date DESC, t.id DESC';
+
+      const stmt = db.prepare(sql);
+      const rows = stmt.all(...params) as any[];
+
+      const txs = rows.map((row: any) => {
+        let tags: any[] = [];
+        if (row.tags) {
+          try {
+            tags = JSON.parse(row.tags);
+            tags = tags.filter((t: any) => t !== null);
+          } catch {
+            tags = [];
+          }
+        }
+
+        let impact = 0;
+        if (row.type === 'income') {
+          impact = row.amount;
+        } else if (row.type === 'expense') {
+          impact = -Math.abs(row.amount);
+        } else if (row.type === 'transfer') {
+          if (row.account_id === accountId) {
+            impact = -Math.abs(row.amount);
+          } else if (row.dest_account_id === accountId) {
+            impact = Math.abs(row.amount);
+          }
+        }
+
+        delete row.tags;
+        return { ...row, tags, impact };
+      });
+
+      // Calcula saldo acumulado (do mais antigo para o mais novo)
+      const txsAsc = [...txs].reverse();
+      let running = account.balance; // saldo atual da conta
+      for (const tx of txsAsc) {
+        running -= tx.impact;
+      }
+      // running agora é o saldo anterior à primeira transação (saldo inicial do período)
+
+      const result: any[] = [];
+      let balance = running;
+      for (const tx of txsAsc) {
+        balance += tx.impact;
+        result.push({
+          ...tx,
+          running_balance: balance,
+        });
+      }
+      result.reverse();
+
+      res.json({
+        account,
+        transactions: result,
+        initial_balance: running,
+        final_balance: account.balance,
+      });
+    } catch (error: any) {
+      console.error('Erro ao buscar extrato da conta:', error);
+      res.status(500).json({ error: 'Erro ao buscar extrato da conta' });
     }
   },
 };
@@ -2601,6 +2723,9 @@ ARQUIVO: backend\src\controllers\transactionController.ts
 import { Response } from 'express';
 import { Transaction } from '../models/Transaction';
 import { AuthRequest } from '../middlewares/auth';
+import { Account } from '../models/Account';
+import { Jar } from '../models/Jar';
+import { CreditCard } from '../models/CreditCard';
 
 type TransactionStatus = 'pending' | 'confirmed' | 'cancelled';
 type TransactionType = 'income' | 'expense' | 'transfer';
@@ -2618,6 +2743,32 @@ const validateType = (type: string): TransactionType => {
   }
   throw new Error('Tipo de transação inválido');
 };
+
+async function validateSourceActive(
+  userId: number,
+  accountId?: number | null,
+  jarId?: number | null,
+  creditCardId?: number | null
+): Promise<void> {
+  if (accountId) {
+    const account = Account.findById(accountId, userId);
+    if (!account || account.status !== 'active') {
+      throw new Error('A conta selecionada está inativa. Não é possível realizar transações.');
+    }
+  }
+  if (jarId) {
+    const jar = Jar.findById(jarId, userId);
+    if (!jar || jar.status !== 'active') {
+      throw new Error('A caixinha selecionada está inativa. Não é possível realizar transações.');
+    }
+  }
+  if (creditCardId) {
+    const card = CreditCard.findById(creditCardId, userId);
+    if (!card || card.status !== 'active') {
+      throw new Error('O cartão selecionado está inativo. Não é possível realizar transações.');
+    }
+  }
+}
 
 export const transactionController = {
   async getAll(req: AuthRequest, res: Response) {
@@ -2673,6 +2824,8 @@ export const transactionController = {
         credit_card_id,
         category_id,
         dest_account_id,
+        dest_jar_id,
+        jar_id,
         type,
         amount,
         description,
@@ -2695,18 +2848,26 @@ export const transactionController = {
       const validatedType = validateType(type);
       const validatedStatus = validateStatus(status || 'pending');
 
-      if (validatedStatus !== 'pending' && !account_id && !credit_card_id) {
+      if (validatedStatus !== 'pending' && !account_id && !jar_id && !credit_card_id) {
         return res.status(400).json({
-          error: 'Transações confirmadas ou canceladas devem ter uma conta ou cartão vinculado.',
+          error:
+            'Transações confirmadas ou canceladas devem ter uma conta, caixinha ou cartão vinculado.',
         });
+      }
+
+      // Valida se a fonte está ativa (quando status = confirmed ou cancelled)
+      if (validatedStatus !== 'pending') {
+        await validateSourceActive(userId, account_id, jar_id, credit_card_id);
       }
 
       const id = Transaction.create({
         user_id: userId,
         account_id: account_id || null,
+        jar_id: jar_id || null,
         credit_card_id: credit_card_id || null,
         category_id: category_id || null,
         dest_account_id: dest_account_id || null,
+        dest_jar_id: dest_jar_id || null,
         type: validatedType,
         amount,
         description,
@@ -2723,10 +2884,17 @@ export const transactionController = {
         Transaction.setTags(id, tagIds);
       }
 
+      // Atualiza saldos se confirmada
       if (account_id && validatedStatus === 'confirmed') {
         Transaction.updateAccountBalance(account_id, userId);
         if (validatedType === 'transfer' && dest_account_id) {
           Transaction.updateAccountBalance(dest_account_id, userId);
+        }
+        if (jar_id) {
+          Transaction.updateJarBalance(jar_id, userId);
+        }
+        if (dest_jar_id) {
+          Transaction.updateJarBalance(dest_jar_id, userId);
         }
       }
 
@@ -2735,7 +2903,7 @@ export const transactionController = {
       res.status(201).json({ ...newTransaction, tags });
     } catch (error: any) {
       console.error('Erro ao criar transação:', error);
-      res.status(500).json({ error: 'Erro ao criar transação' });
+      res.status(500).json({ error: error.message || 'Erro ao criar transação' });
     }
   },
 
@@ -2766,9 +2934,11 @@ export const transactionController = {
 
       const {
         account_id,
+        jar_id,
         credit_card_id,
         category_id,
         dest_account_id,
+        dest_jar_id,
         type,
         amount,
         description,
@@ -2784,25 +2954,33 @@ export const transactionController = {
 
       const oldAccountId = existing.account_id;
       const oldDestAccountId = existing.dest_account_id;
+      const oldJarId = existing.jar_id;
+      const oldDestJarId = existing.dest_jar_id;
       const oldType = existing.type;
       const newStatus = status ? validateStatus(status) : existing.status;
 
       if (newStatus !== 'pending') {
         const newAccountId = account_id !== undefined ? account_id : existing.account_id;
+        const newJarId = jar_id !== undefined ? jar_id : existing.jar_id;
         const newCreditCardId =
           credit_card_id !== undefined ? credit_card_id : existing.credit_card_id;
-        if (!newAccountId && !newCreditCardId) {
+        if (!newAccountId && !newJarId && !newCreditCardId) {
           return res.status(400).json({
-            error: 'Transações confirmadas ou canceladas devem ter uma conta ou cartão vinculado.',
+            error:
+              'Transações confirmadas ou canceladas devem ter uma conta, caixinha ou cartão vinculado.',
           });
         }
+        // Valida se a fonte está ativa
+        await validateSourceActive(userId, newAccountId, newJarId, newCreditCardId);
       }
 
       const updateData: any = {};
       if (account_id !== undefined) updateData.account_id = account_id || null;
+      if (jar_id !== undefined) updateData.jar_id = jar_id || null;
       if (credit_card_id !== undefined) updateData.credit_card_id = credit_card_id || null;
       if (category_id !== undefined) updateData.category_id = category_id || null;
       if (dest_account_id !== undefined) updateData.dest_account_id = dest_account_id || null;
+      if (dest_jar_id !== undefined) updateData.dest_jar_id = dest_jar_id || null;
       if (type !== undefined) updateData.type = validateType(type);
       if (amount !== undefined) updateData.amount = amount;
       if (description !== undefined) updateData.description = description;
@@ -2822,18 +3000,31 @@ export const transactionController = {
 
       const finalAccountId = updateData.account_id ?? oldAccountId;
       const finalDestAccountId = updateData.dest_account_id ?? oldDestAccountId;
+      const finalJarId = updateData.jar_id ?? oldJarId;
+      const finalDestJarId = updateData.dest_jar_id ?? oldDestJarId;
       const finalType = updateData.type ?? oldType;
       const finalStatus = updateData.status ?? existing.status;
 
       const accountsToUpdate = new Set<number>();
+      const jarsToUpdate = new Set<number>();
+
       if (oldAccountId) accountsToUpdate.add(oldAccountId);
       if (finalAccountId && finalStatus === 'confirmed') accountsToUpdate.add(finalAccountId);
       if (oldType === 'transfer' && oldDestAccountId) accountsToUpdate.add(oldDestAccountId);
       if (finalType === 'transfer' && finalDestAccountId && finalStatus === 'confirmed')
         accountsToUpdate.add(finalDestAccountId);
 
+      if (oldJarId) jarsToUpdate.add(oldJarId);
+      if (finalJarId && finalStatus === 'confirmed') jarsToUpdate.add(finalJarId);
+      if (oldType === 'transfer' && oldDestJarId) jarsToUpdate.add(oldDestJarId);
+      if (finalType === 'transfer' && finalDestJarId && finalStatus === 'confirmed')
+        jarsToUpdate.add(finalDestJarId);
+
       for (const accId of accountsToUpdate) {
         Transaction.updateAccountBalance(accId, userId);
+      }
+      for (const jarId of jarsToUpdate) {
+        Transaction.updateJarBalance(jarId, userId);
       }
 
       const updated = Transaction.findById(id, userId);
@@ -2841,7 +3032,7 @@ export const transactionController = {
       res.json({ ...updated, tags });
     } catch (error: any) {
       console.error('Erro ao atualizar transação:', error);
-      res.status(500).json({ error: 'Erro ao atualizar transação' });
+      res.status(500).json({ error: error.message || 'Erro ao atualizar transação' });
     }
   },
 
@@ -2867,6 +3058,8 @@ export const transactionController = {
 
       const accountId = existing.account_id;
       const destAccountId = existing.dest_account_id;
+      const jarId = existing.jar_id;
+      const destJarId = existing.dest_jar_id;
       const type = existing.type;
 
       Transaction.setTags(id, []);
@@ -2876,6 +3069,12 @@ export const transactionController = {
         Transaction.updateAccountBalance(accountId, userId);
         if (type === 'transfer' && destAccountId) {
           Transaction.updateAccountBalance(destAccountId, userId);
+        }
+        if (jarId) {
+          Transaction.updateJarBalance(jarId, userId);
+        }
+        if (type === 'transfer' && destJarId) {
+          Transaction.updateJarBalance(destJarId, userId);
         }
       }
 
@@ -2942,7 +3141,6 @@ export interface IAccount {
   color?: string;
   institution?: string;
   icon?: string;
-  goal_id?: number | null;
   status: 'active' | 'inactive';
   created_at?: string;
   updated_at?: string;
@@ -2951,8 +3149,8 @@ export interface IAccount {
 export class Account {
   static create(data: Omit<IAccount, 'id' | 'created_at' | 'updated_at'>): number {
     const stmt = db.prepare(`
-      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, goal_id, status)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO accounts (user_id, name, type, balance, color, institution, icon, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const info = stmt.run(
       data.user_id,
@@ -2962,18 +3160,27 @@ export class Account {
       data.color || '#10b981',
       data.institution || null,
       data.icon || 'Wallet',
-      data.goal_id || null,
       data.status || 'active'
     );
     return info.lastInsertRowid as number;
   }
 
-  static findByUser(userId: number, onlyActive: boolean = false): IAccount[] {
+  static findByUser(
+    userId: number,
+    filters?: { status?: 'active' | 'inactive'; type?: string }
+  ): IAccount[] {
     let sql = 'SELECT * FROM accounts WHERE user_id = ?';
     const params: any[] = [userId];
-    if (onlyActive) {
-      sql += " AND status = 'active'";
+
+    if (filters?.status) {
+      sql += ' AND status = ?';
+      params.push(filters.status);
     }
+    if (filters?.type) {
+      sql += ' AND type = ?';
+      params.push(filters.type);
+    }
+
     sql += ' ORDER BY type, name';
     const stmt = db.prepare(sql);
     return stmt.all(...params) as IAccount[];
@@ -2982,11 +3189,6 @@ export class Account {
   static findById(id: number, userId: number): IAccount | undefined {
     const stmt = db.prepare('SELECT * FROM accounts WHERE id = ? AND user_id = ?');
     return stmt.get(id, userId) as IAccount | undefined;
-  }
-
-  static findGoalAccount(goalId: number, userId: number): IAccount | undefined {
-    const stmt = db.prepare('SELECT * FROM accounts WHERE goal_id = ? AND user_id = ?');
-    return stmt.get(goalId, userId) as IAccount | undefined;
   }
 
   static update(id: number, userId: number, data: Partial<IAccount>): void {
@@ -4362,11 +4564,13 @@ router.use(authMiddleware);
 router.get('/', accountController.getAll);
 router.get('/net-worth', accountController.getNetWorth);
 router.get('/:id', accountController.getOne);
+router.get('/:id/transactions', accountController.getTransactions);
 router.post('/', accountController.create);
 router.put('/:id', accountController.update);
 router.delete('/:id', accountController.remove);
 
 export default router;
+
 
 --------------------------------------------------------------------------------
 ARQUIVO: backend\src\routes\auth.ts
@@ -5168,7 +5372,6 @@ export default function App() {
   const [view, setView] = useState<AppView>('login');
   const [page, setPage] = useState<Page>('dashboard');
 
-  // Redireciona para o app se já estiver autenticado
   useEffect(() => {
     if (isAuthenticated && (view === 'login' || view === 'register')) {
       setView('app');
@@ -5266,7 +5469,9 @@ ARQUIVO: frontend\src\index.css
   --font-mono: var(--font-mono);
 }
 
-* { box-sizing: border-box; }
+* {
+  box-sizing: border-box;
+}
 
 body {
   background-color: var(--background);
@@ -5277,16 +5482,34 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-::-webkit-scrollbar { width: 5px; height: 5px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: #243048; }
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #243048;
+}
 
-.mono { font-family: var(--font-mono); }
-.positive { color: var(--success); }
-.negative { color: var(--danger); }
+.mono {
+  font-family: var(--font-mono);
+}
+.positive {
+  color: var(--success);
+}
+.negative {
+  color: var(--danger);
+}
 
-input, select, textarea {
+input,
+select,
+textarea {
   background-color: var(--secondary);
   border: 1px solid var(--border);
   color: var(--foreground);
@@ -5297,17 +5520,37 @@ input, select, textarea {
   outline: none;
   transition: border-color 0.15s;
 }
-input:focus, select:focus, textarea:focus {
+input:focus,
+select:focus,
+textarea:focus {
   border-color: var(--primary);
 }
-input::placeholder, textarea::placeholder {
+input::placeholder,
+textarea::placeholder {
   color: var(--muted-foreground);
 }
 
-button { cursor: pointer; font-family: var(--font-sans); }
+button {
+  cursor: pointer;
+  font-family: var(--font-sans);
+}
 
 .progress-ring {
   transform: rotate(-90deg);
+}
+
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.animate-slide-up {
+  animation: slide-up 0.3s ease-out;
 }
 
 
@@ -5319,19 +5562,301 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 import { AuthProvider } from './contexts/AuthContext';
+import { ToastProvider } from './contexts/ToastContext';
+import ToastContainer from './components/Toast';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <AuthProvider>
-      <App />
+      <ToastProvider>
+        <App />
+        <ToastContainer />
+      </ToastProvider>
     </AuthProvider>
-  </React.StrictMode>,
+  </React.StrictMode>
 );
+
 
 --------------------------------------------------------------------------------
 ARQUIVO: frontend\src\vite-env.d.ts
 --------------------------------------------------------------------------------
 /// <reference types="vite/client" />
+
+
+--------------------------------------------------------------------------------
+ARQUIVO: frontend\src\components\AccountStatement.tsx
+--------------------------------------------------------------------------------
+import { useState, useEffect, useCallback } from 'react';
+import {
+  X,
+  ArrowLeftRight,
+  TrendingUp,
+  TrendingDown,
+  Calendar,
+  Filter,
+  Loader2,
+} from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
+import { accountService, Account } from '../services/accountService';
+import { formatBRL } from '../data/mock';
+
+interface TransactionWithBalance {
+  id: number;
+  date: string;
+  description: string;
+  type: 'income' | 'expense' | 'transfer';
+  amount: number;
+  category_id?: number | null;
+  account_id?: number | null;
+  dest_account_id?: number | null;
+  running_balance: number;
+  impact: number;
+  tags?: any[];
+}
+
+interface Props {
+  accountId: number;
+  accountName: string;
+  onClose: () => void;
+}
+
+export default function AccountStatement({ accountId, accountName, onClose }: Props) {
+  const { token } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [transactions, setTransactions] = useState<TransactionWithBalance[]>([]);
+  const [initialBalance, setInitialBalance] = useState(0);
+  const [finalBalance, setFinalBalance] = useState(0);
+  const [account, setAccount] = useState<Account | null>(null);
+
+  // Filtros
+  const [filterType, setFilterType] = useState('all');
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+
+  const loadStatement = useCallback(async () => {
+    if (!token) return;
+    try {
+      setLoading(true);
+      const params: any = {};
+      if (filterType !== 'all') params.type = filterType;
+      if (startDate) params.startDate = startDate;
+      if (endDate) params.endDate = endDate;
+      const data = await accountService.getTransactions(accountId, token, params);
+      setAccount(data.account);
+      setTransactions(data.transactions);
+      setInitialBalance(data.initial_balance);
+      setFinalBalance(data.final_balance);
+      setError(null);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }, [accountId, token, filterType, startDate, endDate]);
+
+  useEffect(() => {
+    loadStatement();
+  }, [loadStatement]);
+
+  const handleClearFilters = () => {
+    setFilterType('all');
+    setStartDate('');
+    setEndDate('');
+  };
+
+  if (error) {
+    return (
+      <div className="p-6 text-center" style={{ color: 'var(--danger)' }}>
+        Erro ao carregar extrato: {error}
+      </div>
+    );
+  }
+
+  const getTypeIcon = (type: string, impact: number) => {
+    if (type === 'income') return <TrendingUp size={14} style={{ color: 'var(--primary)' }} />;
+    if (type === 'expense') return <TrendingDown size={14} style={{ color: 'var(--danger)' }} />;
+    if (type === 'transfer') {
+      return <ArrowLeftRight size={14} style={{ color: 'var(--accent)' }} />;
+    }
+    return null;
+  };
+
+  const getAmountColor = (impact: number) => {
+    if (impact > 0) return 'var(--primary)';
+    if (impact < 0) return 'var(--danger)';
+    return 'var(--muted-foreground)';
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(7,9,13,0.85)', backdropFilter: 'blur(6px)' }}
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-4xl rounded-xl overflow-hidden flex flex-col"
+        style={{
+          background: 'var(--card)',
+          border: '1px solid var(--border)',
+          maxHeight: '85vh',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-6 py-4 border-b shrink-0"
+          style={{ borderColor: 'var(--border)' }}
+        >
+          <div>
+            <h2 className="font-semibold">Extrato - {account?.name || accountName}</h2>
+            <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+              {transactions.length} transações · Saldo atual:{' '}
+              <span
+                className="font-bold"
+                style={{ color: finalBalance >= 0 ? 'var(--primary)' : 'var(--danger)' }}
+              >
+                {finalBalance < 0 ? '-' : ''}
+                {formatBRL(Math.abs(finalBalance))}
+              </span>
+            </p>
+          </div>
+          <button onClick={onClose} style={{ color: 'var(--muted-foreground)' }}>
+            <X size={18} />
+          </button>
+        </div>
+
+        {/* Filtros */}
+        <div className="px-6 py-3 border-b shrink-0" style={{ borderColor: 'var(--border)' }}>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <Filter size={14} style={{ color: 'var(--muted-foreground)' }} />
+              <select
+                value={filterType}
+                onChange={(e) => setFilterType(e.target.value)}
+                className="text-sm"
+                style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+              >
+                <option value="all">Todos os tipos</option>
+                <option value="income">Receitas</option>
+                <option value="expense">Despesas</option>
+                <option value="transfer">Transferências</option>
+              </select>
+            </div>
+
+            <div className="flex items-center gap-1.5">
+              <Calendar size={14} style={{ color: 'var(--muted-foreground)' }} />
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="text-sm"
+                style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+              />
+              <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                a
+              </span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                className="text-sm"
+                style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+              />
+            </div>
+
+            <button
+              onClick={handleClearFilters}
+              className="text-xs px-2.5 py-1 rounded-lg transition-opacity hover:opacity-70"
+              style={{ color: 'var(--muted-foreground)', border: '1px solid var(--border)' }}
+            >
+              Limpar filtros
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4 relative">
+          {/* Loading overlay */}
+          {loading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-card/50 backdrop-blur-sm z-10">
+              <Loader2 size={32} className="animate-spin" style={{ color: 'var(--primary)' }} />
+            </div>
+          )}
+
+          {/* Saldo inicial */}
+          <div
+            className="flex justify-between items-center p-3 rounded-lg mb-4"
+            style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+          >
+            <span className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
+              Saldo inicial do período
+            </span>
+            <span className="font-mono font-semibold" style={{ color: 'var(--foreground)' }}>
+              {initialBalance < 0 ? '-' : ''}
+              {formatBRL(Math.abs(initialBalance))}
+            </span>
+          </div>
+
+          {/* Lista de transações */}
+          <div className="flex flex-col gap-2">
+            {transactions.length === 0 ? (
+              <div className="text-center py-8" style={{ color: 'var(--muted-foreground)' }}>
+                Nenhuma transação encontrada com os filtros atuais.
+              </div>
+            ) : (
+              transactions.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="flex items-center gap-3 p-3 rounded-lg hover:bg-secondary/30 transition-colors"
+                  style={{ border: '1px solid var(--border)' }}
+                >
+                  <div className="flex items-center gap-2">{getTypeIcon(tx.type, tx.impact)}</div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{tx.description}</p>
+                    <div
+                      className="flex items-center gap-3 text-xs"
+                      style={{ color: 'var(--muted-foreground)' }}
+                    >
+                      <span className="flex items-center gap-1">
+                        <Calendar size={11} /> {tx.date.slice(0, 10).split('-').reverse().join('/')}
+                      </span>
+                      {tx.tags && tx.tags.length > 0 && (
+                        <span className="flex gap-1 flex-wrap">
+                          {tx.tags.map((tag) => (
+                            <span
+                              key={tag.id}
+                              className="px-1.5 py-0.5 rounded-full text-[10px]"
+                              style={{ background: tag.color + '22', color: tag.color }}
+                            >
+                              {tag.name}
+                            </span>
+                          ))}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span
+                      className="text-sm font-mono font-semibold"
+                      style={{ color: getAmountColor(tx.impact) }}
+                    >
+                      {tx.impact > 0 ? '+' : ''}
+                      {formatBRL(tx.amount)}
+                    </span>
+                    <p className="text-xs font-mono" style={{ color: 'var(--muted-foreground)' }}>
+                      Saldo: {formatBRL(tx.running_balance)}
+                    </p>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 
 --------------------------------------------------------------------------------
@@ -5349,10 +5874,14 @@ import {
   Banknote,
   Power,
   PowerOff,
+  FileText,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { accountService, Account } from '../services/accountService';
 import { formatBRL } from '../data/mock';
+import Toast from './Toast';
+import ConfirmDialog from './ConfirmDialog';
+import AccountStatement from './AccountStatement';
 
 const iconMap: Record<string, any> = { Wallet, Building2, PiggyBank, Banknote };
 
@@ -5378,15 +5907,36 @@ export default function Accounts() {
     institution: '',
     status: 'active' as 'active' | 'inactive',
   });
-  const [confirmAction, setConfirmAction] = useState<{
-    type: 'delete' | 'toggle';
-    id: number;
+
+  // Filtros
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'checking' | 'savings' | 'cash' | 'digital'>(
+    'all'
+  );
+
+  // Confirmação e Toasts
+  const [toast, setToast] = useState<{
+    message: string;
+    type: 'success' | 'error' | 'info';
   } | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    variant?: 'danger' | 'primary';
+  } | null>(null);
+
+  // Extrato
+  const [statementAccountId, setStatementAccountId] = useState<number | null>(null);
+  const [statementAccountName, setStatementAccountName] = useState('');
 
   const loadAccounts = async () => {
     try {
       setLoading(true);
-      const data = await accountService.getAll(token!);
+      const params: any = {};
+      if (filterStatus !== 'all') params.status = filterStatus;
+      if (filterType !== 'all') params.type = filterType;
+      const data = await accountService.getAll(token!, params);
       setAccounts(data);
     } catch (err: any) {
       setError(err.message);
@@ -5397,7 +5947,7 @@ export default function Accounts() {
 
   useEffect(() => {
     if (token) loadAccounts();
-  }, [token]);
+  }, [token, filterStatus, filterType]);
 
   const netWorth = accounts.filter((a) => a.status === 'active').reduce((s, a) => s + a.balance, 0);
 
@@ -5440,6 +5990,7 @@ export default function Accounts() {
           },
           token!
         );
+        setToast({ message: 'Conta atualizada com sucesso!', type: 'success' });
       } else {
         await accountService.create(
           {
@@ -5454,35 +6005,62 @@ export default function Accounts() {
           },
           token!
         );
+        setToast({ message: 'Conta criada com sucesso!', type: 'success' });
       }
       setShowModal(false);
       await loadAccounts();
     } catch (err: any) {
-      alert(err.message);
+      setToast({ message: err.message, type: 'error' });
     }
   };
 
-  const toggleActive = async (id: number) => {
-    try {
-      const account = accounts.find((a) => a.id === id);
-      if (!account) return;
-      const newStatus = account.status === 'active' ? 'inactive' : 'active';
-      await accountService.update(id, { status: newStatus }, token!);
-      await loadAccounts();
-      setConfirmAction(null);
-    } catch (err: any) {
-      alert(err.message);
-    }
+  const toggleActive = (id: number) => {
+    setConfirmDialog({
+      title: 'Alterar status',
+      message:
+        'Deseja alterar o status da conta entre ativa e inativa? Contas inativas não podem ser usadas em novas transações.',
+      onConfirm: async () => {
+        try {
+          const account = accounts.find((a) => a.id === id);
+          if (!account) return;
+          const newStatus = account.status === 'active' ? 'inactive' : 'active';
+          await accountService.update(id, { status: newStatus }, token!);
+          await loadAccounts();
+          setToast({
+            message: `Conta ${newStatus === 'active' ? 'ativada' : 'inativada'} com sucesso!`,
+            type: 'success',
+          });
+        } catch (err: any) {
+          setToast({ message: err.message, type: 'error' });
+        }
+        setConfirmDialog(null);
+      },
+      variant: 'primary',
+    });
   };
 
-  const deleteAccount = async (id: number) => {
-    try {
-      await accountService.delete(id, token!);
-      await loadAccounts();
-      setConfirmAction(null);
-    } catch (err: any) {
-      alert(err.message);
-    }
+  const deleteAccount = (id: number) => {
+    setConfirmDialog({
+      title: 'Excluir conta',
+      message:
+        'Esta ação excluirá a conta permanentemente. Só é permitido se não houver transações vinculadas.',
+      onConfirm: async () => {
+        try {
+          await accountService.delete(id, token!);
+          await loadAccounts();
+          setToast({ message: 'Conta excluída com sucesso!', type: 'success' });
+        } catch (err: any) {
+          setToast({ message: err.message, type: 'error' });
+        }
+        setConfirmDialog(null);
+      },
+      variant: 'danger',
+    });
+  };
+
+  const openStatement = (id: number, name: string) => {
+    setStatementAccountId(id);
+    setStatementAccountName(name);
   };
 
   if (loading) {
@@ -5516,13 +6094,37 @@ export default function Accounts() {
             {accounts.filter((a) => a.status !== 'active').length} inativa(s)
           </p>
         </div>
-        <button
-          onClick={openNew}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
-          style={{ background: 'var(--primary)', color: '#fff' }}
-        >
-          <Plus size={14} /> Nova conta
-        </button>
+        <div className="flex items-center gap-3">
+          <select
+            value={filterStatus}
+            onChange={(e) => setFilterStatus(e.target.value as any)}
+            className="text-sm"
+            style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+          >
+            <option value="all">Todos os status</option>
+            <option value="active">Ativas</option>
+            <option value="inactive">Inativas</option>
+          </select>
+          <select
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value as any)}
+            className="text-sm"
+            style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+          >
+            <option value="all">Todos os tipos</option>
+            <option value="checking">Conta Corrente</option>
+            <option value="savings">Poupança</option>
+            <option value="cash">Dinheiro Físico</option>
+            <option value="digital">Carteira Digital</option>
+          </select>
+          <button
+            onClick={openNew}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-opacity hover:opacity-90"
+            style={{ background: 'var(--primary)', color: '#fff' }}
+          >
+            <Plus size={14} /> Nova conta
+          </button>
+        </div>
       </div>
 
       {/* Net Worth Banner */}
@@ -5547,9 +6149,13 @@ export default function Accounts() {
           </p>
           <p
             className="text-3xl font-bold mono"
-            style={{ color: 'var(--primary)', letterSpacing: '-0.05em' }}
+            style={{
+              color: netWorth >= 0 ? 'var(--primary)' : 'var(--danger)',
+              letterSpacing: '-0.05em',
+            }}
           >
-            {formatBRL(netWorth)}
+            {netWorth < 0 ? '-' : ''}
+            {formatBRL(Math.abs(netWorth))}
           </p>
         </div>
         <div className="flex gap-8 text-right">
@@ -5621,6 +6227,14 @@ export default function Accounts() {
                 </div>
                 <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
+                    onClick={() => openStatement(acc.id, acc.name)}
+                    className="w-6 h-6 rounded flex items-center justify-center"
+                    style={{ color: 'var(--muted-foreground)' }}
+                    title="Extrato"
+                  >
+                    <FileText size={12} />
+                  </button>
+                  <button
                     onClick={() => openEdit(acc)}
                     className="w-6 h-6 rounded flex items-center justify-center"
                     style={{ color: 'var(--muted-foreground)' }}
@@ -5628,14 +6242,14 @@ export default function Accounts() {
                     <Pencil size={12} />
                   </button>
                   <button
-                    onClick={() => setConfirmAction({ type: 'toggle', id: acc.id })}
+                    onClick={() => toggleActive(acc.id)}
                     className="w-6 h-6 rounded flex items-center justify-center"
                     style={{ color: isActive ? 'var(--warning)' : 'var(--primary)' }}
                   >
                     {isActive ? <PowerOff size={12} /> : <Power size={12} />}
                   </button>
                   <button
-                    onClick={() => setConfirmAction({ type: 'delete', id: acc.id })}
+                    onClick={() => deleteAccount(acc.id)}
                     className="w-6 h-6 rounded flex items-center justify-center"
                     style={{ color: 'var(--danger)' }}
                   >
@@ -5658,7 +6272,8 @@ export default function Accounts() {
                   className="text-xl font-bold mono"
                   style={{ color: balanceClass(acc.balance), letterSpacing: '-0.04em' }}
                 >
-                  {formatBRL(acc.balance)}
+                  {acc.balance < 0 ? '-' : ''}
+                  {formatBRL(Math.abs(acc.balance))}
                 </p>
               </div>
             </div>
@@ -5677,7 +6292,7 @@ export default function Accounts() {
         </button>
       </div>
 
-      {/* Modal */}
+      {/* Modal de criação/edição */}
       {showModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -5825,47 +6440,27 @@ export default function Accounts() {
         </div>
       )}
 
-      {/* Confirm Action Modal */}
-      {confirmAction && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
-          style={{ background: 'rgba(7,9,13,0.8)' }}
-        >
-          <div
-            className="w-80 rounded-xl p-6"
-            style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
-          >
-            <h3 className="font-semibold mb-2">
-              {confirmAction.type === 'delete' ? 'Excluir conta' : 'Alterar status'}
-            </h3>
-            <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>
-              {confirmAction.type === 'delete'
-                ? 'Esta ação excluirá a conta permanentemente. Só é permitido se não houver transações vinculadas.'
-                : 'Deseja alterar o status da conta entre ativa e inativa? Contas inativas não podem ser usadas em novas transações.'}
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setConfirmAction(null)}
-                className="flex-1 py-2 rounded-lg text-sm"
-                style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
-              >
-                Cancelar
-              </button>
-              <button
-                onClick={() => {
-                  if (confirmAction.type === 'delete') deleteAccount(confirmAction.id);
-                  else toggleActive(confirmAction.id);
-                }}
-                className="flex-1 py-2 rounded-lg text-sm font-medium text-white"
-                style={{
-                  background: confirmAction.type === 'delete' ? 'var(--danger)' : 'var(--primary)',
-                }}
-              >
-                Confirmar
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Extrato */}
+      {statementAccountId && (
+        <AccountStatement
+          accountId={statementAccountId}
+          accountName={statementAccountName}
+          onClose={() => setStatementAccountId(null)}
+        />
+      )}
+
+      {/* Toast */}
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+      {/* Confirm Dialog */}
+      {confirmDialog && (
+        <ConfirmDialog
+          title={confirmDialog.title}
+          message={confirmDialog.message}
+          onConfirm={confirmDialog.onConfirm}
+          onCancel={() => setConfirmDialog(null)}
+          variant={confirmDialog.variant}
+        />
       )}
     </div>
   );
@@ -6724,6 +7319,65 @@ export default function Categories() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+--------------------------------------------------------------------------------
+ARQUIVO: frontend\src\components\ConfirmDialog.tsx
+--------------------------------------------------------------------------------
+interface ConfirmDialogProps {
+  title: string;
+  message: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  confirmText?: string;
+  cancelText?: string;
+  variant?: 'danger' | 'primary';
+}
+
+export default function ConfirmDialog({
+  title,
+  message,
+  onConfirm,
+  onCancel,
+  confirmText = 'Confirmar',
+  cancelText = 'Cancelar',
+  variant = 'primary',
+}: ConfirmDialogProps) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: 'rgba(7,9,13,0.8)' }}
+    >
+      <div
+        className="w-80 rounded-xl p-6"
+        style={{ background: 'var(--card)', border: '1px solid var(--border)' }}
+      >
+        <h3 className="font-semibold mb-2">{title}</h3>
+        <p className="text-sm mb-5" style={{ color: 'var(--muted-foreground)' }}>
+          {message}
+        </p>
+        <div className="flex gap-2">
+          <button
+            onClick={onCancel}
+            className="flex-1 py-2 rounded-lg text-sm"
+            style={{ background: 'var(--secondary)', border: '1px solid var(--border)' }}
+          >
+            {cancelText}
+          </button>
+          <button
+            onClick={onConfirm}
+            className="flex-1 py-2 rounded-lg text-sm font-medium text-white"
+            style={{
+              background: variant === 'danger' ? 'var(--danger)' : 'var(--primary)',
+            }}
+          >
+            {confirmText}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -12402,6 +13056,57 @@ export default function Tags() {
 
 
 --------------------------------------------------------------------------------
+ARQUIVO: frontend\src\components\Toast.tsx
+--------------------------------------------------------------------------------
+import { useEffect } from 'react';
+import { CheckCircle, AlertCircle, X } from 'lucide-react';
+
+interface ToastProps {
+  message: string;
+  type?: 'success' | 'error' | 'info';
+  onClose: () => void;
+  duration?: number;
+}
+
+export default function Toast({ message, type = 'info', onClose, duration = 3000 }: ToastProps) {
+  useEffect(() => {
+    const timer = setTimeout(onClose, duration);
+    return () => clearTimeout(timer);
+  }, [duration, onClose]);
+
+  const colors = {
+    success: 'var(--primary)',
+    error: 'var(--danger)',
+    info: 'var(--accent)',
+  };
+
+  const icons = {
+    success: <CheckCircle size={16} />,
+    error: <AlertCircle size={16} />,
+    info: <AlertCircle size={16} />,
+  };
+
+  return (
+    <div
+      className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl animate-slide-up"
+      style={{
+        background: 'var(--card)',
+        border: `1px solid ${colors[type]}`,
+        color: 'var(--foreground)',
+        maxWidth: '400px',
+      }}
+    >
+      <span style={{ color: colors[type] }}>{icons[type]}</span>
+      <span className="text-sm flex-1">{message}</span>
+      <button onClick={onClose} style={{ color: 'var(--muted-foreground)' }}>
+        <X size={14} />
+      </button>
+    </div>
+  );
+}
+
+
+--------------------------------------------------------------------------------
 ARQUIVO: frontend\src\components\Transactions.tsx
 --------------------------------------------------------------------------------
 import { useState, useEffect } from 'react';
@@ -13526,9 +14231,61 @@ export const useAuth = () => {
 };
 
 --------------------------------------------------------------------------------
+ARQUIVO: frontend\src\contexts\ToastContext.tsx
+--------------------------------------------------------------------------------
+import React, { createContext, useContext, useState, ReactNode } from 'react';
+
+interface Toast {
+  id: string;
+  message: string;
+  type: 'success' | 'error' | 'warning' | 'info';
+  duration?: number;
+}
+
+interface ToastContextType {
+  toasts: Toast[];
+  showToast: (message: string, type: Toast['type'], duration?: number) => void;
+  removeToast: (id: string) => void;
+}
+
+const ToastContext = createContext<ToastContextType | undefined>(undefined);
+
+export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+  const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const showToast = (message: string, type: Toast['type'] = 'info', duration: number = 3000) => {
+    const id = Date.now().toString() + Math.random().toString(36).substr(2, 5);
+    setToasts((prev) => [...prev, { id, message, type, duration }]);
+    setTimeout(() => {
+      removeToast(id);
+    }, duration);
+  };
+
+  const removeToast = (id: string) => {
+    setToasts((prev) => prev.filter((t) => t.id !== id));
+  };
+
+  return (
+    <ToastContext.Provider value={{ toasts, showToast, removeToast }}>
+      {children}
+    </ToastContext.Provider>
+  );
+};
+
+export const useToast = () => {
+  const context = useContext(ToastContext);
+  if (!context) {
+    throw new Error('useToast must be used within ToastProvider');
+  }
+  return context;
+};
+
+
+--------------------------------------------------------------------------------
 ARQUIVO: frontend\src\services\accountService.ts
 --------------------------------------------------------------------------------
 import { api } from './api';
+import { Transaction } from './transactionService';
 
 export interface Account {
   id: number;
@@ -13545,8 +14302,14 @@ export interface Account {
 }
 
 export const accountService = {
-  async getAll(token: string, includeInactive: boolean = true): Promise<Account[]> {
-    const url = includeInactive ? '/accounts' : '/accounts?onlyActive=true';
+  async getAll(
+    token: string,
+    filters?: { status?: 'active' | 'inactive'; type?: string }
+  ): Promise<Account[]> {
+    const query = new URLSearchParams();
+    if (filters?.status) query.append('status', filters.status);
+    if (filters?.type) query.append('type', filters.type);
+    const url = `/accounts${query.toString() ? '?' + query.toString() : ''}`;
     return api.get<Account[]>(url, token);
   },
 
@@ -13576,6 +14339,24 @@ export const accountService = {
       '/accounts/net-worth',
       token
     );
+  },
+
+  async getTransactions(
+    id: number,
+    token: string,
+    filters?: { startDate?: string; endDate?: string; type?: string }
+  ): Promise<{
+    account: Account;
+    transactions: (Transaction & { running_balance: number; impact: number })[];
+    initial_balance: number;
+    final_balance: number;
+  }> {
+    const query = new URLSearchParams();
+    if (filters?.startDate) query.append('startDate', filters.startDate);
+    if (filters?.endDate) query.append('endDate', filters.endDate);
+    if (filters?.type) query.append('type', filters.type);
+    const url = `/accounts/${id}/transactions${query.toString() ? '?' + query.toString() : ''}`;
+    return api.get(url, token);
   },
 };
 

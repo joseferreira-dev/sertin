@@ -24,7 +24,6 @@ export default function App() {
   const [view, setView] = useState<AppView>('login');
   const [page, setPage] = useState<Page>('dashboard');
 
-  // Redireciona para o app se já estiver autenticado
   useEffect(() => {
     if (isAuthenticated && (view === 'login' || view === 'register')) {
       setView('app');
