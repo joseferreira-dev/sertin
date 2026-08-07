@@ -153,7 +153,6 @@ export class Goal {
     if (goal.status !== 'archived') {
       throw new Error('Apenas metas arquivadas podem ser excluídas.');
     }
-    // Remove associação com transações
     db.prepare('UPDATE transactions SET meta_id = NULL WHERE meta_id = ? AND user_id = ?').run(
       id,
       userId
@@ -181,11 +180,19 @@ export class Goal {
     categoryId?: number | null,
     tagIds?: number[]
   ): void {
+    if (!goalId) throw new Error('ID da meta é obrigatório');
+    if (!userId) throw new Error('ID do usuário é obrigatório');
+    if (isNaN(amount) || amount === 0) throw new Error('Valor inválido');
+    if (isNaN(sourceAccountId) || !sourceAccountId) {
+      throw new Error('ID da conta de origem é obrigatório');
+    }
+
     const goal = this.findById(goalId, userId);
     if (!goal) throw new Error('Meta não encontrada');
 
     const jar = Jar.findById(goal.jar_id, userId);
     if (!jar) throw new Error('Caixinha associada não encontrada');
+    if (!jar.id) throw new Error('ID da caixinha não encontrado');
 
     const isDeposit = amount > 0;
     const absAmount = Math.abs(amount);
@@ -198,12 +205,14 @@ export class Goal {
       if (jar.balance < absAmount) throw new Error('Saldo insuficiente na caixinha');
     }
 
+    const jarId = jar.id;
+
     const txnData = {
       user_id: userId,
       account_id: isDeposit ? sourceAccountId : null,
-      jar_id: isDeposit ? null : jar.id,
+      jar_id: isDeposit ? null : jarId,
       dest_account_id: isDeposit ? null : sourceAccountId,
-      dest_jar_id: isDeposit ? jar.id : null,
+      dest_jar_id: isDeposit ? jarId : null,
       credit_card_id: null,
       category_id: categoryId || null,
       type: 'transfer' as const,
@@ -226,16 +235,12 @@ export class Goal {
       Transaction.setTags(txnId, tagIds);
     }
 
-    if (isDeposit) {
-      Transaction.updateAccountBalance(sourceAccountId, userId);
-      Transaction.updateJarBalance(jar.id, userId);
-    } else {
-      Transaction.updateAccountBalance(sourceAccountId, userId);
-      Transaction.updateJarBalance(jar.id, userId);
-    }
+    Transaction.updateAccountBalance(sourceAccountId, userId);
+    Transaction.updateJarBalance(jarId, userId);
 
-    const updatedJar = Jar.findById(jar.id, userId);
-    this.update(goalId, userId, { current_amount: updatedJar ? updatedJar.balance : 0 });
+    const updatedJar = Jar.findById(jarId, userId);
+    const newCurrent = updatedJar ? updatedJar.balance : 0;
+    this.update(goalId, userId, { current_amount: newCurrent });
 
     const insertContribution = db.prepare(`
       INSERT INTO goal_contributions (goal_id, amount, date, note)

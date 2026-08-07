@@ -4,6 +4,7 @@ export interface Goal {
   id: number;
   user_id: number;
   name: string;
+  jar_id: number;
   type: 'emergency' | 'opportunity' | 'travel' | 'material' | 'education' | 'investment' | 'free';
   target_amount: number;
   current_amount: number;
@@ -95,7 +96,7 @@ export const goalService = {
     return api.get<GoalContribution[]>(`/goals/${id}/contributions`, token);
   },
 
-  async completeGoal(id: number, destAccountId: number, token: string): Promise<Goal> {
-    return api.post<Goal>(`/goals/${id}/complete`, { destAccountId }, token);
+  async completeGoal(id: number, token: string): Promise<Goal> {
+    return api.post<Goal>(`/goals/${id}/complete`, {}, token);
   },
 };

@@ -221,7 +221,7 @@ export function seed() {
     }
 
     // 7. Metas (associadas a caixinhas)
-    const goalStmt = db.prepare(`
+    const goalStmt2 = db.prepare(`
       INSERT INTO goals (
         user_id, name, jar_id, type, target_amount, color, icon,
         priority, status, target_date, description, annual_yield
@@ -255,7 +255,7 @@ export function seed() {
     ];
     const goalIds: number[] = [];
     for (const g of goalData) {
-      const info = goalStmt.run(
+      const info = goalStmt2.run(
         userId,
         g.name,
         g.jar_id,
@@ -445,40 +445,55 @@ export function seed() {
       `UPDATE transactions SET status = 'confirmed' WHERE installment_id = ? AND installment_number <= ?`
     ).run(installmentId, 3);
 
-    // 10. Aportes para metas usando Goal.addContribution
-    Goal.addContribution(
-      goalIds[0],
-      userId,
-      1000,
-      accountIds[0],
-      dateStr(5),
-      'Aporte mensal',
-      'Aporte para Fundo de Emergência',
-      parentIds['Salário'],
-      []
-    );
-    Goal.addContribution(
-      goalIds[0],
-      userId,
-      500,
-      accountIds[0],
-      dateStr(20),
-      'Bônus',
-      'Bônus extra',
-      parentIds['Salário'],
-      []
-    );
-    Goal.addContribution(
-      goalIds[1],
-      userId,
-      1500,
-      accountIds[0],
-      dateStr(10),
-      'Poupança viagem',
-      'Aporte para Viagem Europa',
-      parentIds['Lazer'],
-      []
-    );
+    // 10. Aportes para metas (usando Goal.addContribution)
+    // Buscar contas das metas (caixinhas já existem)
+    // Precisamos de accounts ativas para origem
+    const goalAccounts = db
+      .prepare('SELECT id FROM jars WHERE id = ? AND user_id = ?')
+      .all(goalIds[0], userId) as { id: number }[];
+    if (goalAccounts.length > 0) {
+      const jarId = goalAccounts[0].id;
+      // Aporte para Fundo de Emergência: transferir de Nubank (accountIds[0])
+      Goal.addContribution(
+        goalIds[0],
+        userId,
+        1000,
+        accountIds[0],
+        dateStr(5),
+        'Aporte mensal',
+        undefined,
+        null,
+        []
+      );
+      Goal.addContribution(
+        goalIds[0],
+        userId,
+        500,
+        accountIds[0],
+        dateStr(20),
+        'Bônus',
+        undefined,
+        null,
+        []
+      );
+    }
+
+    const goalAccounts2 = db
+      .prepare('SELECT id FROM jars WHERE id = ? AND user_id = ?')
+      .all(goalIds[1], userId) as { id: number }[];
+    if (goalAccounts2.length > 0) {
+      Goal.addContribution(
+        goalIds[1],
+        userId,
+        1500,
+        accountIds[0],
+        dateStr(10),
+        'Poupança viagem',
+        undefined,
+        null,
+        []
+      );
+    }
 
     // 11. Logs
     const logStmt = db.prepare(`

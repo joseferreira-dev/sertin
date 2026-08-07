@@ -15,13 +15,15 @@ import { useAuth } from '../contexts/AuthContext';
 import { formatBRL } from '../data/mock';
 import { transactionService, Transaction as TransactionType } from '../services/transactionService';
 import { accountService, Account } from '../services/accountService';
-import { jarService, Jar } from '../services/jarService';
 import { creditCardService, CreditCard } from '../services/creditCardService';
 import { categoryService, Category } from '../services/categoryService';
 import { tagService, Tag } from '../services/tagService';
+import { jarService, Jar } from '../services/jarService';
 
 interface TransactionWithTags extends TransactionType {
   tags?: Tag[];
+  jar_id?: number | null;
+  dest_jar_id?: number | null;
 }
 
 interface TransactionForm {
@@ -74,6 +76,7 @@ export default function Transactions() {
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [filterAccount, setFilterAccount] = useState('');
+  const [filterJar, setFilterJar] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null);
   const [installments, setInstallments] = useState(1);
@@ -119,14 +122,9 @@ export default function Transactions() {
   const filtered = txs.filter((tx) => {
     if (search && !tx.description?.toLowerCase().includes(search.toLowerCase())) return false;
     if (filterType !== 'all' && tx.type !== filterType) return false;
-    if (filterAccount) {
-      const match =
-        String(tx.account_id) === filterAccount ||
-        String(tx.dest_account_id) === filterAccount ||
-        String(tx.jar_id) === filterAccount ||
-        String(tx.dest_jar_id) === filterAccount;
-      if (!match) return false;
-    }
+    if (filterAccount && String(tx.account_id) !== filterAccount) return false;
+    if (filterJar && String(tx.jar_id) !== filterJar && String(tx.dest_jar_id) !== filterJar)
+      return false;
     if (filterStatus && tx.status !== filterStatus) return false;
     return true;
   });
@@ -157,9 +155,9 @@ export default function Transactions() {
       description: tx.description,
       amount: Math.abs(tx.amount),
       accountId: tx.account_id ?? null,
-      jarId: (tx as any).jar_id ?? null,
+      jarId: tx.jar_id ?? null,
       destAccountId: tx.dest_account_id ?? null,
-      destJarId: (tx as any).dest_jar_id ?? null,
+      destJarId: tx.dest_jar_id ?? null,
       creditCardId: (tx as any).credit_card_id ?? null,
       categoryId: tx.category_id ?? null,
       status: tx.status || 'confirmed',
@@ -172,27 +170,15 @@ export default function Transactions() {
     setShowModal(true);
   };
 
-  const getAccountName = (id?: number | null) => {
-    if (!id) return '—';
-    const found = accounts.find((a) => a.id === id);
-    return found ? found.name : `ID ${id}`;
-  };
-
-  const getJarName = (id?: number | null) => {
-    if (!id) return '—';
-    const found = jars.find((j) => j.id === id);
-    return found ? found.name : `ID ${id}`;
-  };
-
   const combinedSources = [
     ...accounts.map((a) => ({ ...a, sourceType: 'account' as const })),
-    ...jars.map((j) => ({ ...j, sourceType: 'jar' as const, id: j.id, name: j.name })),
     ...creditCards.map((c) => ({
       ...c,
       sourceType: 'credit_card' as const,
       name: c.name,
       id: c.id,
     })),
+    ...jars.map((j) => ({ ...j, sourceType: 'jar' as const, name: j.name, id: j.id })),
   ];
 
   const selectedSourceValue = (() => {
@@ -271,16 +257,16 @@ export default function Transactions() {
     return found ? found.name : `ID ${id}`;
   };
 
-  const getSourceName = (tx: TransactionWithTags) => {
-    if (tx.account_id) return getAccountName(tx.account_id);
-    if ((tx as any).jar_id) return getJarName((tx as any).jar_id);
-    if ((tx as any).credit_card_id) {
-      const card = creditCards.find((c) => c.id === (tx as any).credit_card_id);
-      return card ? card.name : 'Cartão';
-    }
-    if (tx.dest_account_id) return getAccountName(tx.dest_account_id);
-    if ((tx as any).dest_jar_id) return getJarName((tx as any).dest_jar_id);
-    return '—';
+  const getAccountName = (id?: number | null) => {
+    if (!id) return '—';
+    const found = accounts.find((a) => a.id === id);
+    return found ? found.name : `ID ${id}`;
+  };
+
+  const getJarName = (id?: number | null) => {
+    if (!id) return '—';
+    const found = jars.find((j) => j.id === id);
+    return found ? found.name : `ID ${id}`;
   };
 
   if (loading) {
@@ -387,7 +373,7 @@ export default function Transactions() {
                     className="text-xs mb-1 block"
                     style={{ color: 'var(--muted-foreground)' }}
                   >
-                    Conta/Caixinha/Cartão
+                    Conta/Cartão/Caixinha
                   </label>
                   <select
                     className="w-full text-xs py-1.5"
@@ -498,7 +484,7 @@ export default function Transactions() {
                   'Data',
                   'Descrição',
                   'Categoria',
-                  'Conta/Caixinha/Cartão',
+                  'Conta/Cartão/Caixinha',
                   'Status',
                   'Valor',
                   '',
@@ -518,118 +504,128 @@ export default function Transactions() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((tx) => (
-                <tr
-                  key={tx.id}
-                  className="group border-b transition-colors hover:bg-secondary/20"
-                  style={{ borderColor: 'var(--border)' }}
-                >
-                  <td
-                    className="px-4 py-3 text-xs mono whitespace-nowrap"
-                    style={{ color: 'var(--muted-foreground)' }}
+              {filtered.map((tx) => {
+                let sourceName = '—';
+                if (tx.account_id) sourceName = getAccountName(tx.account_id);
+                else if (tx.jar_id) sourceName = getJarName(tx.jar_id);
+                else if (tx.dest_jar_id) sourceName = getJarName(tx.dest_jar_id);
+                else if ((tx as any).credit_card_id) {
+                  const card = creditCards.find((c) => c.id === (tx as any).credit_card_id);
+                  sourceName = card ? card.name : 'Cartão';
+                }
+                return (
+                  <tr
+                    key={tx.id}
+                    className="group border-b transition-colors hover:bg-secondary/20"
+                    style={{ borderColor: 'var(--border)' }}
                   >
-                    {tx.date.slice(8)}/{tx.date.slice(5, 7)}
-                  </td>
-                  <td className="px-4 py-3 max-w-0">
-                    <div className="flex flex-col gap-1">
-                      <span className="text-xs font-medium truncate block">
-                        {tx.description}
-                        {tx.installment_number &&
-                          tx.installment_total &&
-                          tx.installment_total > 1 && (
-                            <span
-                              className="ml-1 text-xs px-1 rounded"
-                              style={{
-                                background: 'var(--secondary)',
-                                color: 'var(--muted-foreground)',
-                              }}
-                            >
-                              {tx.installment_number}/{tx.installment_total}
-                            </span>
-                          )}
+                    <td
+                      className="px-4 py-3 text-xs mono whitespace-nowrap"
+                      style={{ color: 'var(--muted-foreground)' }}
+                    >
+                      {tx.date.slice(8)}/{tx.date.slice(5, 7)}
+                    </td>
+                    <td className="px-4 py-3 max-w-0">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-xs font-medium truncate block">
+                          {tx.description}
+                          {tx.installment_number &&
+                            tx.installment_total &&
+                            tx.installment_total > 1 && (
+                              <span
+                                className="ml-1 text-xs px-1 rounded"
+                                style={{
+                                  background: 'var(--secondary)',
+                                  color: 'var(--muted-foreground)',
+                                }}
+                              >
+                                {tx.installment_number}/{tx.installment_total}
+                              </span>
+                            )}
+                        </span>
+                        {tx.tags && tx.tags.length > 0 && (
+                          <div className="flex gap-1 flex-wrap">
+                            {tx.tags.map((tag) => (
+                              <span
+                                key={tag.id}
+                                className="text-xs px-1.5 py-0.5 rounded-full"
+                                style={{
+                                  background: tag.color + '22',
+                                  color: tag.color,
+                                  border: `1px solid ${tag.color}44`,
+                                }}
+                              >
+                                {tag.name}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      <span className="truncate block max-w-28">
+                        {getCategoryName(tx.category_id)}
                       </span>
-                      {tx.tags && tx.tags.length > 0 && (
-                        <div className="flex gap-1 flex-wrap">
-                          {tx.tags.map((tag) => (
-                            <span
-                              key={tag.id}
-                              className="text-xs px-1.5 py-0.5 rounded-full"
-                              style={{
-                                background: tag.color + '22',
-                                color: tag.color,
-                                border: `1px solid ${tag.color}44`,
-                              }}
-                            >
-                              {tag.name}
-                            </span>
-                          ))}
+                    </td>
+                    <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                      <span className="truncate block max-w-28">{sourceName}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className="text-xs px-2 py-0.5 rounded-full"
+                        style={{
+                          background: statusColor(tx.status) + '22',
+                          color: statusColor(tx.status),
+                        }}
+                      >
+                        {statusLabel(tx.status)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <span
+                        className="text-xs font-semibold mono"
+                        style={{
+                          color:
+                            tx.type === 'income'
+                              ? 'var(--primary)'
+                              : tx.type === 'transfer'
+                                ? 'var(--muted-foreground)'
+                                : 'var(--danger)',
+                        }}
+                      >
+                        {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
+                        {formatBRL(Math.abs(tx.amount))}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3">
+                      {tx.installment_id ? (
+                        <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
+                          (parcela)
+                        </span>
+                      ) : (
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button
+                            onClick={() => openEdit(tx)}
+                            className="w-6 h-6 rounded flex items-center justify-center transition-opacity hover:opacity-70"
+                            style={{ color: 'var(--muted-foreground)' }}
+                            title="Editar transação"
+                          >
+                            <Pencil size={12} />
+                          </button>
+                          <button
+                            onClick={() => setConfirmDelete(tx.id!)}
+                            className="w-6 h-6 rounded flex items-center justify-center transition-opacity hover:opacity-70"
+                            style={{ color: 'var(--danger)' }}
+                            title="Excluir transação"
+                          >
+                            <Trash2 size={12} />
+                          </button>
                         </div>
                       )}
-                    </div>
-                  </td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    <span className="truncate block max-w-28">
-                      {getCategoryName(tx.category_id)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    <span className="truncate block max-w-28">{getSourceName(tx)}</span>
-                  </td>
-                  <td className="px-4 py-3">
-                    <span
-                      className="text-xs px-2 py-0.5 rounded-full"
-                      style={{
-                        background: statusColor(tx.status) + '22',
-                        color: statusColor(tx.status),
-                      }}
-                    >
-                      {statusLabel(tx.status)}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <span
-                      className="text-xs font-semibold mono"
-                      style={{
-                        color:
-                          tx.type === 'income'
-                            ? 'var(--primary)'
-                            : tx.type === 'transfer'
-                              ? 'var(--muted-foreground)'
-                              : 'var(--danger)',
-                      }}
-                    >
-                      {tx.type === 'income' ? '+' : tx.type === 'expense' ? '-' : ''}
-                      {formatBRL(Math.abs(tx.amount))}
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">
-                    {tx.installment_id ? (
-                      <span className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                        (parcela)
-                      </span>
-                    ) : (
-                      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => openEdit(tx)}
-                          className="w-6 h-6 rounded flex items-center justify-center transition-opacity hover:opacity-70"
-                          style={{ color: 'var(--muted-foreground)' }}
-                          title="Editar transação"
-                        >
-                          <Pencil size={12} />
-                        </button>
-                        <button
-                          onClick={() => setConfirmDelete(tx.id!)}
-                          className="w-6 h-6 rounded flex items-center justify-center transition-opacity hover:opacity-70"
-                          style={{ color: 'var(--danger)' }}
-                          title="Excluir transação"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
               {filtered.length === 0 && (
                 <tr>
                   <td
@@ -646,7 +642,7 @@ export default function Transactions() {
         </div>
       </div>
 
-      {/* Modal de criação/edição */}
+      {/* Modal de criação/edição - similar ao original, adaptado para incluir caixinhas */}
       {showModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
@@ -744,7 +740,7 @@ export default function Transactions() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="flex flex-col gap-1">
                   <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    Conta/Caixinha/Cartão
+                    Conta/Cartão/Caixinha
                   </label>
                   <select
                     value={selectedSourceValue}
@@ -858,18 +854,20 @@ export default function Transactions() {
                       }}
                     >
                       <option value="">Selecione</option>
-                      {accounts.map((a) => (
-                        <option key={`account-${a.id}`} value={`account-${a.id}`}>
-                          Conta: {a.name}
-                        </option>
-                      ))}
-                      {jars
-                        .filter((j) => j.id !== editTx.jarId)
-                        .map((j) => (
-                          <option key={`jar-${j.id}`} value={`jar-${j.id}`}>
-                            Caixinha: {j.name}
+                      <optgroup label="Contas">
+                        {accounts.map((a) => (
+                          <option key={`account-${a.id}`} value={`account-${a.id}`}>
+                            {a.name}
                           </option>
                         ))}
+                      </optgroup>
+                      <optgroup label="Caixinhas">
+                        {jars.map((j) => (
+                          <option key={`jar-${j.id}`} value={`jar-${j.id}`}>
+                            {j.name}
+                          </option>
+                        ))}
+                      </optgroup>
                     </select>
                   </div>
                 )}

@@ -199,7 +199,7 @@ export default function Layout({ currentPage, onNavigate, onLogout, children }: 
       <div className="flex-1 flex flex-col min-w-0">
         {/* Topbar */}
         <header
-          className="h-14 flex items-center justify-between px-6 flex-shrink-0"
+          className="h-14 flex items-center justify-between px-6 shrink-0"
           style={{ borderBottom: '1px solid var(--border)', background: 'var(--card)' }}
         >
           <div className="flex items-center gap-2" style={{ color: 'var(--muted-foreground)' }}>

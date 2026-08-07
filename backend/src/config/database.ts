@@ -98,6 +98,7 @@ db.exec(`
     jar_id INTEGER NOT NULL,
     type TEXT CHECK(type IN ('emergency','opportunity','travel','material','education','investment','free')),
     target_amount REAL NOT NULL,
+    current_amount REAL DEFAULT 0,
     color TEXT DEFAULT '#10b981',
     icon TEXT DEFAULT '🎯',
     priority TEXT DEFAULT 'medium' CHECK(priority IN ('low','medium','high','urgent')),

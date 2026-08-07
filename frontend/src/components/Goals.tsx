@@ -14,6 +14,7 @@ import {
   ArrowUpCircle,
   ArrowDownCircle,
   CheckCircle,
+  PiggyBank,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { formatBRL } from '../data/mock';
@@ -85,8 +86,8 @@ export default function Goals() {
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [completeGoalId, setCompleteGoalId] = useState<number | null>(null);
 
-  const [jars, setJars] = useState<Jar[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
+  const [jars, setJars] = useState<Jar[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
 
@@ -126,14 +127,14 @@ export default function Goals() {
   useEffect(() => {
     if (token && (showModal || showContributionModal || showCompleteModal)) {
       Promise.all([
-        jarService.getAll(token),
         accountService.getAll(token),
+        jarService.getAll(token),
         categoryService.getAll(token),
         tagService.getAll(token),
       ])
-        .then(([jarsData, accs, cats, tagsData]) => {
-          setJars(jarsData);
+        .then(([accs, jarsData, cats, tagsData]) => {
           setAccounts(accs);
+          setJars(jarsData);
           setCategories(cats);
           setTags(tagsData);
         })
@@ -179,14 +180,10 @@ export default function Goals() {
 
   const save = async () => {
     if (!token) return;
-    if (!form.jar_id) {
-      alert('Selecione uma caixinha para associar à meta.');
-      return;
-    }
     try {
       const payload = {
         name: form.name,
-        jar_id: form.jar_id,
+        jar_id: form.jar_id!,
         type: form.type,
         target_amount: parseFloat(form.target_amount) || 0,
         color: form.color,
@@ -280,7 +277,7 @@ export default function Goals() {
       return;
     }
     if (!contributionSourceAccountId) {
-      alert('Selecione uma conta de origem/destino');
+      alert('Selecione uma conta de origem');
       return;
     }
     const finalAmount = contributionType === 'deposit' ? amount : -amount;
@@ -311,7 +308,7 @@ export default function Goals() {
     }
   };
 
-  // Concluir meta
+  // Concluir meta (apenas arquiva)
   const openComplete = (goalId: number) => {
     setCompleteGoalId(goalId);
     setShowCompleteModal(true);
@@ -441,6 +438,7 @@ export default function Goals() {
         {goals.map((goal) => {
           const days = goal.days_remaining;
           const isArchivedGoal = isArchived(goal.status);
+          const jar = jars.find((j) => j.id === goal.jar_id);
           return (
             <div
               key={goal.id}
@@ -479,7 +477,8 @@ export default function Goals() {
                     {typeLabels[goal.type] || goal.type}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    Caixinha: {jars.find((j) => j.id === goal.jar_id)?.name || '—'}
+                    <PiggyBank size={10} className="inline mr-0.5" />
+                    {jar ? jar.name : 'Caixinha não encontrada'}
                   </p>
                 </div>
                 <ProgressRing goal={goal} />
@@ -578,7 +577,7 @@ export default function Goals() {
                         e.stopPropagation();
                         openComplete(goal.id);
                       }}
-                      title="Concluir meta"
+                      title="Concluir meta (arquiva)"
                     >
                       <CheckCircle size={14} />
                     </button>
@@ -848,7 +847,9 @@ export default function Goals() {
                     {typeLabels[detailGoal.type] || detailGoal.type}
                   </p>
                   <p className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                    Caixinha: {jars.find((j) => j.id === detailGoal.jar_id)?.name || '—'}
+                    <PiggyBank size={10} className="inline mr-0.5" />
+                    {jars.find((j) => j.id === detailGoal.jar_id)?.name ||
+                      'Caixinha não encontrada'}
                   </p>
                 </div>
               </div>
@@ -1116,7 +1117,7 @@ export default function Goals() {
 
               <div className="flex flex-col gap-1">
                 <label className="text-xs" style={{ color: 'var(--muted-foreground)' }}>
-                  {contributionType === 'deposit' ? 'Conta de origem' : 'Conta de destino'}
+                  Conta de origem
                 </label>
                 <select
                   value={contributionSourceAccountId}
@@ -1124,11 +1125,13 @@ export default function Goals() {
                   className="w-full"
                 >
                   <option value="">Selecione uma conta</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name} - {formatBRL(a.balance)}
-                    </option>
-                  ))}
+                  {accounts
+                    .filter((a) => a.type !== 'goal')
+                    .map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.name} - {formatBRL(a.balance)}
+                      </option>
+                    ))}
                 </select>
               </div>
 
@@ -1265,7 +1268,7 @@ export default function Goals() {
             <div className="p-5 flex flex-col gap-4">
               <p className="text-sm" style={{ color: 'var(--muted-foreground)' }}>
                 Ao concluir a meta, ela será arquivada e marcada como concluída. O dinheiro
-                permanecerá na caixinha associada.
+                permanece na caixinha associada.
               </p>
             </div>
             <div className="flex gap-3 px-5 pb-5">
